@@ -231,30 +231,41 @@ public class FriendServiceImpl implements FriendService {
         userRepository.findByUsername(username)
                 .orElseThrow(() -> new BusinessException(404, "用户不存在"));
 
-        // 查询好友列表（已接受的好友关系）
-        Page<Friendship> friendships = friendshipRepository.findApprovedFriendshipsByUsername(username, pageable);
+        // 使用去重的 friendId 列表来避免重复（数据库中可能存在双向两条记录）
+        List<Long> friendIds = friendshipRepository.findFriendIdsByUsername(username);
 
-        // 转换为响应对象
-        List<FriendResponse> friendList = friendships.stream()
-                .map(friendship -> {
-                    // 确定哪个是好友用户
-                    User friendUser = friendship.getSender().getUsername().equals(username)
-                            ? friendship.getReceiver()
-                            : friendship.getSender();
+        // 总数为去重后的好友数量
+        long total = friendIds.size();
 
-                    return new FriendResponse(
-                            friendUser.getId(),
-                            friendUser.getUsername(),
-                            friendUser.getPoints(),
-                            friendship.getStatus().name().toLowerCase(),
-                            friendUser.getLastLoginAt(),
-                            friendship.getHandledAt());
-                })
+        // 根据 pageable 在内存中做分页（因为 repository 返回的实体可能包含重复记录）
+        int page = pageable.getPageNumber();
+        int size = pageable.getPageSize();
+        int start = page * size;
+        int end = Math.min(start + size, friendIds.size());
+
+        List<FriendResponse> friendList;
+        if (start >= end) {
+            friendList = List.of();
+        } else {
+            List<Long> pageIds = friendIds.subList(start, end);
+
+            // 逐项查找用户并构造响应，保持顺序
+            friendList = pageIds.stream()
+                .map(id -> userRepository.findById(id)
+                    .orElseThrow(() -> new BusinessException(404, "好友用户不存在")))
+                .map(friendUser -> new FriendResponse(
+                    friendUser.getId(),
+                    friendUser.getUsername(),
+                    friendUser.getPoints(),
+                    Friendship.FriendshipStatus.APPROVED.name().toLowerCase(),
+                    friendUser.getLastLoginAt(),
+                    null))
                 .toList();
+        }
 
-        log.debug("用户{}查询好友列表，共{}条记录", username, friendships.getTotalElements());
+        log.debug("用户{}查询好友列表（去重），共{}条记录", username, total);
 
-        return new FriendListResponse(friendships.getTotalElements(), friendList);
+        return new FriendListResponse(total, friendList);
     }
 
     @Override

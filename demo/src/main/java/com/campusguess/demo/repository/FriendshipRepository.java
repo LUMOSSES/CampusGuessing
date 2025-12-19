@@ -52,15 +52,16 @@ public interface FriendshipRepository extends JpaRepository<Friendship, Long> {
                         "f.status = com.campusguess.demo.model.entity.Friendship.FriendshipStatus.APPROVED")
         boolean existsFriendshipByUsernames(@Param("username1") String username1, @Param("username2") String username2);
 
-        // 统计好友数量（基于用户名）
-        @Query("SELECT COUNT(f) FROM Friendship f WHERE " +
+        // 统计好友数量（基于用户名，去重好友 ID）
+        @Query("SELECT COUNT(DISTINCT CASE WHEN f.sender.username = :username THEN f.receiver.id ELSE f.sender.id END) FROM Friendship f WHERE " +
                         "(f.sender.username = :username OR f.receiver.username = :username) AND " +
                         "f.status = com.campusguess.demo.model.entity.Friendship.FriendshipStatus.APPROVED")
         Long countFriendsByUsername(@Param("username") String username);
 
-        @Query("SELECT CASE WHEN f.sender.username = :username THEN f.receiver.id ELSE f.sender.id END " +
+        // 查找好友 ID 列表（基于用户名，去重）
+        @Query("SELECT DISTINCT CASE WHEN f.sender.username = :username THEN f.receiver.id ELSE f.sender.id END " +
                         "FROM Friendship f " +
                         "WHERE (f.sender.username = :username OR f.receiver.username = :username) " +
-                        "AND f.status = 'APPROVED'")
+                        "AND f.status = com.campusguess.demo.model.entity.Friendship.FriendshipStatus.APPROVED")
         List<Long> findFriendIdsByUsername(@Param("username") String username);
 }

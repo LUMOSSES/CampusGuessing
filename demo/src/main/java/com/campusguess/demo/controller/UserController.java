@@ -4,6 +4,8 @@ import com.campusguess.demo.model.dto.auth.RegisterRequest;
 import com.campusguess.demo.model.entity.User;
 import com.campusguess.demo.model.dto.response.ApiResponse;
 import com.campusguess.demo.model.dto.user.UserInfoResponse;
+import com.campusguess.demo.model.dto.user.PointChangeRequest;
+import com.campusguess.demo.model.dto.user.PointChangeResponse;
 import com.campusguess.demo.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -47,5 +49,14 @@ public class UserController {
                 user.getPoints());
 
         return ResponseEntity.ok(ApiResponse.success("查询成功", userInfo));
+    }
+
+    @PutMapping("/{username}/changePoint")
+    public ResponseEntity<ApiResponse<PointChangeResponse>> changeUserPoints(
+            @PathVariable("username") String username,
+            @Valid @RequestBody PointChangeRequest request) {
+
+        PointChangeResponse resp = userService.changePoints(username, request.getPointChange());
+        return ResponseEntity.ok(ApiResponse.success("用户积分修改成功", resp));
     }
 }

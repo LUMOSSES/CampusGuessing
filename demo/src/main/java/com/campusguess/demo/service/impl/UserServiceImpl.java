@@ -3,6 +3,7 @@ package com.campusguess.demo.service.impl;
 import com.campusguess.demo.exception.BusinessException;
 import com.campusguess.demo.model.dto.auth.LoginRequest;
 import com.campusguess.demo.model.dto.auth.RegisterRequest;
+import com.campusguess.demo.model.dto.user.PointChangeResponse;
 import com.campusguess.demo.model.entity.User;
 import com.campusguess.demo.repository.UserRepository;
 import com.campusguess.demo.service.UserService;
@@ -74,5 +75,21 @@ public class UserServiceImpl implements UserService {
         User user = findById(userId);
         user.setLastLoginAt(LocalDateTime.now());
         userRepository.save(user);
+    }
+
+    @Override
+    @Transactional
+    public PointChangeResponse changePoints(String username, Integer pointChange) {
+        if (pointChange == null) {
+            throw new BusinessException(400, "pointChange不能为空");
+        }
+
+        User user = findByUsername(username);
+        Integer before = user.getPoints() != null ? user.getPoints() : 0;
+        Integer after = before + pointChange;
+        user.setPoints(after);
+        userRepository.save(user);
+
+        return new PointChangeResponse(user.getId(), user.getUsername(), before, pointChange, after);
     }
 }
