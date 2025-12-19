@@ -34,11 +34,11 @@ public class UserController {
         return ResponseEntity.status(201).body(ApiResponse.created("注册成功", userInfo));
     }
 
-    @GetMapping("/{userId}")
+    @GetMapping("/{username}")
     public ResponseEntity<ApiResponse<UserInfoResponse>> getUserInfo(
-            @PathVariable("userId") Long currentUserId) {
+            @PathVariable("username") String username) {
 
-        User user = userService.findById(currentUserId);
+        User user = userService.findByUsername(username);
         UserInfoResponse userInfo = new UserInfoResponse(
                 user.getId(),
                 user.getUsername(),

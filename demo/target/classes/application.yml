@@ -30,3 +30,7 @@ jwt:
 logging:
   level:
     com.zsu.planfinder: DEBUG
+image:
+  host:
+    url: https://picui.cn/api/v1
+    token: Bearer 2083|KEIbu81Xhll4EprEN0pVGJb02R9dGNYlWKHYpsYr

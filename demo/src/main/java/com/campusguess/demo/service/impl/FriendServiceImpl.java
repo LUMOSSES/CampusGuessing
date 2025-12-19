@@ -28,31 +28,31 @@ public class FriendServiceImpl implements FriendService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<Long> getFriendIds(Long userId) {
+    public List<Long> getFriendIds(String username) {
         // 验证用户存在
-        userRepository.findById(userId)
+        userRepository.findByUsername(username)
                 .orElseThrow(() -> new BusinessException(404, "用户不存在"));
 
         // 查询好友ID列表（已接受的好友关系）
-        return friendshipRepository.findFriendIdsByUserId(userId);
+        return friendshipRepository.findFriendIdsByUsername(username);
     }
 
     @Override
     @Transactional
-    public FriendshipResponse addFriend(Long userId, AddFriendRequest request) {
-        Long friendId = request.getFriendUserId();
+    public FriendshipResponse addFriend(String username, AddFriendRequest request) {
+        String friendUsername = request.getFriendUsername();
 
         // 1. 验证不能添加自己为好友
-        if (userId.equals(friendId)) {
+        if (username.equals(friendUsername)) {
             throw new BusinessException(400, "不能添加自己为好友");
         }
 
         // 2. 验证好友用户是否存在
-        User friendUser = userRepository.findById(friendId)
+        User friendUser = userRepository.findByUsername(friendUsername)
                 .orElseThrow(() -> new BusinessException(404, "目标用户不存在"));
 
         // 3. 检查是否已经发送过申请（当前用户→对方）
-        Optional<Friendship> mySentRequestOpt = friendshipRepository.findBySenderIdAndReceiverId(userId, friendId);
+        Optional<Friendship> mySentRequestOpt = friendshipRepository.findBySenderUsernameAndReceiverUsername(username, friendUsername);
         if (mySentRequestOpt.isPresent()) {
             Friendship mySentRequest = mySentRequestOpt.get();
             switch (mySentRequest.getStatus()) {
@@ -64,26 +64,26 @@ public class FriendServiceImpl implements FriendService {
                     // 如果之前被拒绝，现在重新发送申请
                     // 删除旧的拒绝记录，创建新的申请
                     friendshipRepository.delete(mySentRequest);
-                    log.info("用户{}重新向用户{}发送好友申请，删除旧拒绝记录", userId, friendId);
+                    log.info("用户{}重新向用户{}发送好友申请，删除旧拒绝记录", username, friendUsername);
                     break;
             }
         }
 
         // 4. 检查是否已经收到对方申请（对方→当前用户）
-        Optional<Friendship> receivedRequestOpt = friendshipRepository.findBySenderIdAndReceiverId(friendId, userId);
+        Optional<Friendship> receivedRequestOpt = friendshipRepository.findBySenderUsernameAndReceiverUsername(friendUsername, username);
         if (receivedRequestOpt.isPresent()) {
             Friendship receivedRequest = receivedRequestOpt.get();
 
             if (receivedRequest.getStatus() == Friendship.FriendshipStatus.PENDING) {
                 // 对方已发送申请，直接接受并创建双向关系
-                return acceptExistingRequest(userId, friendId, receivedRequest);
+                return acceptExistingRequest(username, friendUsername, receivedRequest);
             } else if (receivedRequest.getStatus() == Friendship.FriendshipStatus.APPROVED) {
                 throw new BusinessException(400, "你们已经是好友了");
             } else if (receivedRequest.getStatus() == Friendship.FriendshipStatus.REJECTED) {
                 // 对方之前发送的申请被当前用户拒绝了
                 // 现在当前用户主动申请，应该允许创建新申请
                 // 但我们需要检查是否已经有双向好友关系
-                if (friendshipRepository.existsFriendship(userId, friendId)) {
+                if (friendshipRepository.existsFriendshipByUsernames(username, friendUsername)) {
                     throw new BusinessException(400, "你们已经是好友了");
                 }
                 // 可以继续创建新的申请
@@ -91,18 +91,12 @@ public class FriendServiceImpl implements FriendService {
         }
 
         // 5. 检查是否已经是好友（双向检查）
-        if (friendshipRepository.existsFriendship(userId, friendId)) {
+        if (friendshipRepository.existsFriendshipByUsernames(username, friendUsername)) {
             throw new BusinessException(400, "你们已经是好友了");
         }
 
-        // 6. 检查对方是否有拒绝过的申请（对方→当前用户），如果有，需要特殊处理
-        // 这个逻辑已经在第4步处理了，所以这里不需要重复处理
-
-        // 7. 检查当前用户是否有拒绝过的申请（当前用户→对方），如果有，需要特殊处理
-        // 这个逻辑已经在第3步处理了，所以这里不需要重复处理
-
         // 8. 创建新的好友申请
-        User user = userRepository.findById(userId)
+        User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new BusinessException(404, "用户不存在"));
 
         Friendship friendship = new Friendship();
@@ -113,7 +107,7 @@ public class FriendServiceImpl implements FriendService {
         Friendship saved = friendshipRepository.save(friendship);
 
         // 9. 记录日志
-        log.info("用户{}向用户{}发送了好友申请，申请ID: {}", userId, friendId, saved.getId());
+        log.info("用户{}向用户{}发送了好友申请，申请ID: {}", username, friendUsername, saved.getId());
 
         // 10. 返回响应
         return createFriendshipResponse(saved);
@@ -122,7 +116,7 @@ public class FriendServiceImpl implements FriendService {
     /**
      * 接受已存在的好友申请并创建双向关系
      */
-    private FriendshipResponse acceptExistingRequest(Long userId, Long friendId, Friendship existingRequest) {
+    private FriendshipResponse acceptExistingRequest(String username, String friendUsername, Friendship existingRequest) {
         // 1. 更新对方发来的申请为已接受
         existingRequest.setStatus(Friendship.FriendshipStatus.APPROVED);
         existingRequest.setHandledAt(LocalDateTime.now());
@@ -130,7 +124,7 @@ public class FriendServiceImpl implements FriendService {
         Friendship savedRequest = friendshipRepository.save(existingRequest);
 
         // 2. 检查是否已经存在反向记录（当前用户→对方）
-        Optional<Friendship> reverseRequestOpt = friendshipRepository.findBySenderIdAndReceiverId(userId, friendId);
+        Optional<Friendship> reverseRequestOpt = friendshipRepository.findBySenderUsernameAndReceiverUsername(username, friendUsername);
 
         if (reverseRequestOpt.isPresent()) {
             // 如果存在反向记录，更新它而不是创建新的
@@ -139,7 +133,7 @@ public class FriendServiceImpl implements FriendService {
             reverseRequest.setHandledAt(LocalDateTime.now());
             reverseRequest.setHandledType("accept");
             friendshipRepository.save(reverseRequest);
-            log.info("用户{}接受了用户{}的好友申请，并更新了已有的反向记录", userId, friendId);
+            log.info("用户{}接受了用户{}的好友申请，并更新了已有的反向记录", username, friendUsername);
         } else {
             // 创建反向的好友关系记录
             Friendship reverseFriendship = new Friendship();
@@ -149,22 +143,23 @@ public class FriendServiceImpl implements FriendService {
             reverseFriendship.setHandledAt(LocalDateTime.now());
             reverseFriendship.setHandledType("accept");
             friendshipRepository.save(reverseFriendship);
-            log.info("用户{}接受了用户{}的好友申请，并创建了新的反向记录", userId, friendId);
+            log.info("用户{}接受了用户{}的好友申请，并创建了新的反向记录", username, friendUsername);
         }
 
-        log.info("用户{}自动接受了用户{}的好友申请，建立了双向好友关系", userId, friendId);
+        log.info("用户{}自动接受了用户{}的好友申请，建立了双向好友关系", username, friendUsername);
 
         // 返回已接受的申请响应
         return createFriendshipResponse(savedRequest);
     }
 
-    public FriendshipResponse handleFriendRequest(Long userId, Long friendshipId, HandleFriendRequest request) {
-        // 1. 查找好友申请
-        Friendship friendship = friendshipRepository.findById(friendshipId)
+    public FriendshipResponse handleFriendRequest(String username, String friendName, HandleFriendRequest request) {
+        // 1. 根据发起者和接收者用户名查找好友申请（发起者 = friendName, 接收者 = username）
+        Friendship friendship = friendshipRepository
+                .findBySenderUsernameAndReceiverUsername(friendName, username)
                 .orElseThrow(() -> new BusinessException(404, "好友申请不存在"));
 
-        // 2. 验证当前用户是否为接收者
-        if (!friendship.getReceiver().getId().equals(userId)) {
+        // 2. 验证当前用户是否为接收者（基于用户名）
+        if (!friendship.getReceiver().getUsername().equals(username)) {
             throw new BusinessException(403, "无权处理该好友申请");
         }
 
@@ -183,11 +178,11 @@ public class FriendServiceImpl implements FriendService {
             friendship.setHandledAt(now);
 
             // 检查是否已经存在反向记录
-            Long senderId = friendship.getSender().getId();
-            Long receiverId = friendship.getReceiver().getId();
+            String senderUsername = friendship.getSender().getUsername();
+            String receiverUsername = friendship.getReceiver().getUsername();
 
             Optional<Friendship> reverseRequestOpt = friendshipRepository
-                    .findBySenderIdAndReceiverId(receiverId, senderId);
+                    .findBySenderUsernameAndReceiverUsername(receiverUsername, senderUsername);
 
             if (reverseRequestOpt.isPresent()) {
                 // 如果存在反向记录，更新它
@@ -202,14 +197,23 @@ public class FriendServiceImpl implements FriendService {
                 createReverseFriendship(friendship);
             }
 
-            log.info("用户{}接受了用户{}的好友申请，申请ID: {}",
-                    userId, friendship.getSender().getId(), friendshipId);
+                log.info("用户{}接受了用户{}的好友申请，申请ID: {}",
+                    username, friendship.getSender().getId(), friendship.getId());
         } else if ("reject".equals(handleType)) {
-            friendship.setStatus(Friendship.FriendshipStatus.REJECTED);
+            // 拒绝申请：改为直接调用删除好友关系（删除所有两者之间的关系），而不是把状态改为 REJECTED
+            String senderUsername = friendship.getSender().getUsername();
+            // 调用删除接口（同一 service 内方法），会删除两者之间的所有关系（包括当前的 pending 申请）
+            removeFriend(username, senderUsername);
+
+            // 为了返回一致的响应，设置处理信息但不保存到数据库（记录已被删除）
             friendship.setHandledType("reject");
             friendship.setHandledAt(now);
-            log.info("用户{}拒绝了用户{}的好友申请，申请ID: {}",
-                    userId, friendship.getSender().getId(), friendshipId);
+
+            log.info("用户{}拒绝了用户{}的好友申请（通过删除关系实现）",
+                    username, friendship.getSender().getId());
+
+            // 直接返回响应（不再保存 friendship，因为已被删除）
+            return createFriendshipResponse(friendship);
         } else {
             throw new BusinessException(400, "处理类型必须是accept或reject");
         }
@@ -222,19 +226,19 @@ public class FriendServiceImpl implements FriendService {
 
     @Override
     @Transactional(readOnly = true)
-    public FriendListResponse getFriendList(Long userId, Pageable pageable) {
+    public FriendListResponse getFriendList(String username, Pageable pageable) {
         // 验证用户存在
-        userRepository.findById(userId)
+        userRepository.findByUsername(username)
                 .orElseThrow(() -> new BusinessException(404, "用户不存在"));
 
         // 查询好友列表（已接受的好友关系）
-        Page<Friendship> friendships = friendshipRepository.findApprovedFriendships(userId, pageable);
+        Page<Friendship> friendships = friendshipRepository.findApprovedFriendshipsByUsername(username, pageable);
 
         // 转换为响应对象
         List<FriendResponse> friendList = friendships.stream()
                 .map(friendship -> {
                     // 确定哪个是好友用户
-                    User friendUser = friendship.getSender().getId().equals(userId)
+                    User friendUser = friendship.getSender().getUsername().equals(username)
                             ? friendship.getReceiver()
                             : friendship.getSender();
 
@@ -248,18 +252,18 @@ public class FriendServiceImpl implements FriendService {
                 })
                 .toList();
 
-        log.debug("用户{}查询好友列表，共{}条记录", userId, friendships.getTotalElements());
+        log.debug("用户{}查询好友列表，共{}条记录", username, friendships.getTotalElements());
 
         return new FriendListResponse(friendships.getTotalElements(), friendList);
     }
 
     @Override
     @Transactional(readOnly = true)
-    public FriendListResponse getPendingRequests(Long userId, Pageable pageable) {
-        userRepository.findById(userId)
+    public FriendListResponse getPendingRequests(String username, Pageable pageable) {
+        userRepository.findByUsername(username)
                 .orElseThrow(() -> new BusinessException(404, "用户不存在"));
 
-        Page<Friendship> pendingRequests = friendshipRepository.findPendingRequestsByReceiverId(userId, pageable);
+        Page<Friendship> pendingRequests = friendshipRepository.findPendingRequestsByReceiverUsername(username, pageable);
 
         List<FriendResponse> requestList = pendingRequests.stream()
                 .map(friendship -> new FriendResponse(
@@ -271,18 +275,18 @@ public class FriendServiceImpl implements FriendService {
                         friendship.getRequestedAt()))
                 .toList();
 
-        log.debug("用户{}查询待处理好友申请，共{}条记录", userId, pendingRequests.getTotalElements());
+        log.debug("用户{}查询待处理好友申请，共{}条记录", username, pendingRequests.getTotalElements());
 
         return new FriendListResponse(pendingRequests.getTotalElements(), requestList);
     }
 
     @Override
     @Transactional(readOnly = true)
-    public FriendListResponse getSentRequests(Long userId, Pageable pageable) {
-        userRepository.findById(userId)
+    public FriendListResponse getSentRequests(String username, Pageable pageable) {
+        userRepository.findByUsername(username)
                 .orElseThrow(() -> new BusinessException(404, "用户不存在"));
 
-        Page<Friendship> sentRequests = friendshipRepository.findPendingRequestsBySenderId(userId, pageable);
+        Page<Friendship> sentRequests = friendshipRepository.findPendingRequestsBySenderUsername(username, pageable);
 
         List<FriendResponse> requestList = sentRequests.stream()
                 .map(friendship -> new FriendResponse(
@@ -294,44 +298,44 @@ public class FriendServiceImpl implements FriendService {
                         friendship.getRequestedAt()))
                 .toList();
 
-        log.debug("用户{}查询已发送的好友申请，共{}条记录", userId, sentRequests.getTotalElements());
+        log.debug("用户{}查询已发送的好友申请，共{}条记录", username, sentRequests.getTotalElements());
 
         return new FriendListResponse(sentRequests.getTotalElements(), requestList);
     }
 
     @Override
     @Transactional(readOnly = true)
-    public boolean isFriend(Long userId, Long friendId) {
-        boolean isFriend = friendshipRepository.existsFriendship(userId, friendId);
-        log.debug("检查用户{}和用户{}是否是好友：{}", userId, friendId, isFriend);
+    public boolean isFriend(String username, String friendUsername) {
+        boolean isFriend = friendshipRepository.existsFriendshipByUsernames(username, friendUsername);
+        log.debug("检查用户{}和用户{}是否是好友：{}", username, friendUsername, isFriend);
         return isFriend;
     }
 
     @Override
     @Transactional
-    public void removeFriend(Long userId, Long friendId) {
-        userRepository.findById(userId)
+    public void removeFriend(String username, String friendUsername) {
+        userRepository.findByUsername(username)
                 .orElseThrow(() -> new BusinessException(404, "用户不存在"));
-        userRepository.findById(friendId)
+        userRepository.findByUsername(friendUsername)
                 .orElseThrow(() -> new BusinessException(404, "好友用户不存在"));
 
-        List<Friendship> friendships = friendshipRepository.findBetweenUsers(userId, friendId);
+        List<Friendship> friendships = friendshipRepository.findBetweenUsersByUsernames(username, friendUsername);
 
         if (friendships.isEmpty()) {
             throw new BusinessException(404, "好友关系不存在");
         }
 
         friendshipRepository.deleteAll(friendships);
-        log.info("用户{}删除了好友{}，删除了{}条关系记录", userId, friendId, friendships.size());
+        log.info("用户{}删除了好友{}，删除了{}条关系记录", username, friendUsername, friendships.size());
     }
 
     @Override
     @Transactional
-    public void cancelFriendRequest(Long userId, Long friendshipId) {
+    public void cancelFriendRequest(String username, Long friendshipId) {
         Friendship friendship = friendshipRepository.findById(friendshipId)
                 .orElseThrow(() -> new BusinessException(404, "好友申请不存在"));
 
-        if (!friendship.getSender().getId().equals(userId)) {
+        if (!friendship.getSender().getUsername().equals(username)) {
             throw new BusinessException(403, "只能取消自己发送的好友申请");
         }
 
@@ -340,17 +344,17 @@ public class FriendServiceImpl implements FriendService {
         }
 
         friendshipRepository.delete(friendship);
-        log.info("用户{}取消了好友申请ID: {}", userId, friendshipId);
+        log.info("用户{}取消了好友申请ID: {}", username, friendshipId);
     }
 
     @Override
     @Transactional(readOnly = true)
-    public Long getFriendCount(Long userId) {
-        userRepository.findById(userId)
+    public Long getFriendCount(String username) {
+        userRepository.findByUsername(username)
                 .orElseThrow(() -> new BusinessException(404, "用户不存在"));
 
-        Long count = friendshipRepository.countFriends(userId);
-        log.debug("用户{}的好友数量：{}", userId, count);
+        Long count = friendshipRepository.countFriendsByUsername(username);
+        log.debug("用户{}的好友数量：{}", username, count);
         return count;
     }
 
