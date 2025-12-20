@@ -1,20 +1,49 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import { login, registerUser } from '../api/userApi';
+import { setAuth } from '../api/authStorage';
 
 const Login = () => {
     const navigate = useNavigate();
+    const MotionDiv = motion.div;
+    const MotionButton = motion.button;
     const [activeTab, setActiveTab] = useState('login'); // 'login' or 'register'
     const [formData, setFormData] = useState({
         username: '',
         password: '',
     });
+    const [submitting, setSubmitting] = useState(false);
 
-    const handleSubmit = (e) => {
+    let submitText;
+    if (submitting) submitText = '提交中...';
+    else if (activeTab === 'login') submitText = '登录';
+    else submitText = '注册';
+
+    const handleSubmit = async (e) => {
         e.preventDefault();
-        // TODO: Connect to backend API
-        // For now, just navigate to dashboard
-        navigate('/dashboard');
+        if (!formData.username || !formData.password) return;
+
+        try {
+            setSubmitting(true);
+
+            if (activeTab === 'register') {
+                await registerUser({
+                    username: formData.username,
+                    password: formData.password,
+                    role: 'user',
+                });
+            }
+
+            const auth = await login({
+                username: formData.username,
+                password: formData.password,
+            });
+            setAuth(auth);
+            navigate('/dashboard');
+        } finally {
+            setSubmitting(false);
+        }
     };
 
     return (
@@ -26,7 +55,7 @@ const Login = () => {
             </div>
 
             {/* Login Card */}
-            <motion.div
+            <MotionDiv
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6 }}
@@ -67,10 +96,11 @@ const Login = () => {
                     {/* Form */}
                     <form onSubmit={handleSubmit} className="space-y-5">
                         <div>
-                            <label className="block text-sm font-medium text-gray-400 mb-2">
+                            <label htmlFor="username" className="block text-sm font-medium text-gray-400 mb-2">
                                 用户名/邮箱账号
                             </label>
                             <input
+                                id="username"
                                 type="text"
                                 placeholder="请输入用户名或邮箱号码"
                                 value={formData.username}
@@ -80,10 +110,11 @@ const Login = () => {
                         </div>
 
                         <div>
-                            <label className="block text-sm font-medium text-gray-400 mb-2">
+                            <label htmlFor="password" className="block text-sm font-medium text-gray-400 mb-2">
                                 密码
                             </label>
                             <input
+                                id="password"
                                 type="password"
                                 placeholder="请输入密码"
                                 value={formData.password}
@@ -93,14 +124,15 @@ const Login = () => {
                         </div>
 
                         {/* Submit Button */}
-                        <motion.button
+                        <MotionButton
                             whileHover={{ scale: 1.02 }}
                             whileTap={{ scale: 0.98 }}
                             type="submit"
+                            disabled={submitting}
                             className="w-full py-3 bg-gradient-to-r from-orange-500 to-orange-600 text-white font-medium rounded-xl shadow-lg shadow-orange-500/30 hover:shadow-orange-500/50 transition-all"
                         >
-                            {activeTab === 'login' ? '登录' : '注册'}
-                        </motion.button>
+                            {submitText}
+                        </MotionButton>
                     </form>
 
                     {/* Footer Links */}
@@ -118,7 +150,7 @@ const Login = () => {
                 <p className="text-center text-xs text-gray-600 mt-6">
                     登录即表示同意 <span className="text-apple-orange cursor-pointer hover:underline">用户协议</span>
                 </p>
-            </motion.div>
+            </MotionDiv>
         </div>
     );
 };

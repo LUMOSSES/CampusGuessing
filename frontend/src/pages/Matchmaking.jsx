@@ -1,28 +1,38 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import { getDisplayName } from '../api/authStorage';
 
 const Matchmaking = () => {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const mode = searchParams.get('mode') || 'normal';
     const [countdown, setCountdown] = useState(3);
+    const displayName = getDisplayName() || '';
 
     useEffect(() => {
-        // Simulate matchmaking countdown
-        const timer = setInterval(() => {
-            setCountdown((prev) => {
-                if (prev <= 1) {
-                    clearInterval(timer);
-                    // Navigate to game after countdown
-                    setTimeout(() => navigate('/game'), 1000);
-                    return 0;
-                }
-                return prev - 1;
-            });
-        }, 1000);
+        let remaining = 3;
+        let intervalId;
+        let timeoutId;
 
-        return () => clearInterval(timer);
+        const navigateToGame = () => navigate('/game');
+
+        const stopAll = () => {
+            if (intervalId) clearInterval(intervalId);
+            if (timeoutId) clearTimeout(timeoutId);
+        };
+
+        const tick = () => {
+            remaining -= 1;
+            setCountdown(remaining);
+            if (remaining <= 0) {
+                if (intervalId) clearInterval(intervalId);
+                timeoutId = setTimeout(navigateToGame, 1000);
+            }
+        };
+
+        intervalId = setInterval(tick, 1000);
+        return stopAll;
     }, [navigate]);
 
     const getTitle = () => {
@@ -106,10 +116,9 @@ const Matchmaking = () => {
                         className="text-center"
                     >
                         <div className="w-24 h-24 rounded-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center text-3xl font-bold mb-3 mx-auto text-white">
-                            {/* TODO: Use real user initial */}
-                            L
+                             {(displayName || 'U').charAt(0).toUpperCase()}
                         </div>
-                        <div className="text-sm text-gray-400">Lumosse</div>
+                        <div className="text-sm text-gray-400">{displayName || '-'}</div>
                         <div className="text-xs text-gray-600">中国积分：1500</div>
                     </motion.div>
                 </div>
