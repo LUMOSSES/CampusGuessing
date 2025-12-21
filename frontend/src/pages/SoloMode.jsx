@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, List, PlusCircle, FileText, Play, MapPin, X, Upload, Image as ImageIcon } from 'lucide-react';
+import { ChevronLeft, List, PlusCircle, FileText, Play, MapPin, X, Upload, Image as ImageIcon, Trash2 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
 import { motion, AnimatePresence } from 'framer-motion';
 import L from 'leaflet';
@@ -303,6 +303,7 @@ function renderQuestionListPanel({
     filteredList,
     selectedId,
     onSelect,
+    onDelete, // <--- 新增接收 onDelete 参数
 }) {
     let listContent;
     if (listLoading) listContent = <div className="text-gray-500">加载中...</div>;
@@ -312,57 +313,65 @@ function renderQuestionListPanel({
         listContent = (
             <div className="space-y-3">
                 {filteredList.map((q) => (
-                    <button
+                    // 外层改为 div，以便控制布局
+                    <div
                         key={q.id}
-                        type="button"
-                        onClick={() => onSelect(q)}
-                        className={`w-full text-left flex justify-between items-center py-3 px-4 rounded-xl transition-all border ${
+                        className={`w-full flex justify-between items-center pr-2 rounded-xl transition-all border ${
                             selectedId === q.id
                                 ? 'bg-white/10 border-white/20'
                                 : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
                         }`}
                     >
-                        <div className="flex flex-col">
-                            <span className="text-white font-medium">{q.title || `题目 #${q.id}`}</span>
-                            <span className="text-gray-500 text-xs">{q.campus} · {q.difficulty}</span>
+                        {/* 左侧主要点击区域，点击查看详情 */}
+                        <button
+                            type="button"
+                            onClick={() => onSelect(q)}
+                            className="flex-1 text-left py-3 px-4 outline-none"
+                        >
+                            <div className="flex flex-col">
+                                <span className="text-white font-medium">{q.title || `题目 #${q.id}`}</span>
+                                <span className="text-gray-500 text-xs">{q.campus} · {q.difficulty}</span>
+                            </div>
+                        </button>
+
+                        {/* 右侧删除按钮 */}
+                        <div className="flex items-center gap-2 pl-2 border-l border-white/5">
+                            <span className="text-gray-400 text-sm mr-2">#{q.id}</span>
+                            <button
+                                type="button"
+                                onClick={(e) => {
+                                    e.stopPropagation(); // 防止触发 onSelect
+                                    onDelete(q.id);
+                                }}
+                                className="p-2 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-all"
+                                title="删除题目"
+                            >
+                                <Trash2 size={16} />
+                            </button>
                         </div>
-                        <span className="text-gray-400 text-sm">#{q.id}</span>
-                    </button>
+                    </div>
                 ))}
             </div>
         );
     }
 
+    // ... (return 部分保持不变) ...
     return (
         <div className="glass-dark rounded-3xl p-6 lg:col-span-1">
+            {/* ... 之前的筛选代码保持不变 ... */}
             <div className="flex items-center gap-3 mb-4">
                 <List className="w-5 h-5 text-gray-400" />
                 <h2 className="text-xl font-bold">题目列表</h2>
             </div>
 
             <div className="grid grid-cols-2 gap-3 mb-4">
-                <select
-                    value={campus}
-                    onChange={(e) => onChangeCampus(e.target.value)}
-                    className="bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-white focus:outline-none focus:border-apple-orange transition-all"
-                >
-                    {CAMPUS_OPTIONS.map((o) => (
-                        <option key={o.value} value={o.value} className="bg-gray-900">
-                            {o.label}
-                        </option>
-                    ))}
-                </select>
-                <select
-                    value={difficulty}
-                    onChange={(e) => onChangeDifficulty(e.target.value)}
-                    className="bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-white focus:outline-none focus:border-apple-orange transition-all"
-                >
-                    {DIFFICULTY_OPTIONS.map((o) => (
-                        <option key={o.value} value={o.value} className="bg-gray-900">
-                            {o.label}
-                        </option>
-                    ))}
-                </select>
+               {/* ... selects 保持不变 ... */}
+               <select value={campus} onChange={(e) => onChangeCampus(e.target.value)} className="bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-white focus:outline-none focus:border-apple-orange transition-all">
+                    {CAMPUS_OPTIONS.map((o) => <option key={o.value} value={o.value} className="bg-gray-900">{o.label}</option>)}
+               </select>
+               <select value={difficulty} onChange={(e) => onChangeDifficulty(e.target.value)} className="bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-white focus:outline-none focus:border-apple-orange transition-all">
+                    {DIFFICULTY_OPTIONS.map((o) => <option key={o.value} value={o.value} className="bg-gray-900">{o.label}</option>)}
+               </select>
             </div>
 
             <div className="text-gray-500 text-sm mb-4">显示 {filteredCount} / {total}</div>
@@ -724,6 +733,50 @@ const SoloMode = () => {
         }
     };
 
+    const handleDelete = async (questionId) => {
+        if (!window.confirm('确定要删除这道题目吗？此操作无法撤销。')) {
+            return;
+        }
+
+        const userInfo = getCurrentUserInfo();
+        if (!userInfo?.username) {
+            navigate('/login');
+            return;
+        }
+
+        try {
+            // 根据你提供的图片，API 路径是 /users/{userName}/questions/{questionId}
+            // 这里假设你的后端运行在 localhost:8080，如果生产环境不同请修改 base URL
+            const response = await fetch(`http://localhost:8080/api/users/${userInfo.username}/questions/${questionId}`, {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json',
+                    // 如果你的后端需要 Token，请在这里添加，例如:
+                    // 'Authorization': `Bearer ${localStorage.getItem('token')}` 
+                }
+            });
+
+            if (response.ok) {
+                setActionMsg(`题目 #${questionId} 删除成功`);
+                
+                // 如果删除的是当前选中的题目，清空详情
+                if (selectedId === questionId) {
+                    setDetail(null);
+                    setSelectedId(null);
+                }
+                
+                // 刷新列表
+                await loadList();
+            } else {
+                const errText = await response.text();
+                throw new Error(errText || '删除失败');
+            }
+        } catch (error) {
+            console.error('Delete failed:', error);
+            setActionErr(cleanErrorMessage(error.message) || '删除题目失败');
+        }
+    };
+
     const handleCreate = () => {
         const userInfo = getCurrentUserInfo();
         if (!userInfo?.username) {
@@ -810,6 +863,7 @@ const SoloMode = () => {
                         filteredList,
                         selectedId,
                         onSelect: handleSelect,
+                        onDelete: handleDelete,
                     })}
 
                     {renderQuestionDetailPanel({

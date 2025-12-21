@@ -41,8 +41,8 @@ function calculateDistanceAndScore(correct, guess) {
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     const meters = R * c;
 
-    const max = 50;
-    const radius = 10000;
+    const max = 100;
+    const radius = 1000;
     const raw = Math.max(0, max * (1 - meters / radius));
     const score = Math.round(raw);
     return { meters, score };
