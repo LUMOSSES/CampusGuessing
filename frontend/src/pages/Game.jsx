@@ -7,6 +7,7 @@ import 'leaflet/dist/leaflet.css';
 
 import { getCurrentUserInfo } from '../api/authStorage';
 import { getQuestionDetail } from '../api/questionApi';
+import { submitGameRecord } from '../api/recordApi';
 
 // Fix Leaflet default marker icon issue
 import L from 'leaflet';
@@ -133,7 +134,7 @@ function renderTopBar({ isSolo, onBack, currentIndex, total }) {
                 type="button"
                 onClick={onBack}
                 className="p-3 rounded-full glass-dark hover:bg-white/10 transition-all group"
-                aria-label="返回"
+                aria-label="退出练习"
             >
                 <ChevronLeft className="w-6 h-6 text-gray-400 group-hover:text-white transition-colors" />
             </button>
@@ -283,6 +284,9 @@ function renderMapOverlay({
     );
 }
 
+// -----------------------------------------------------------------------------
+// 修改点：重构结果弹窗，实现“继续下一题”->“结束”的逻辑，并移除“返回”按钮
+// -----------------------------------------------------------------------------
 function renderResultOverlay({ isSolo, showResult, result, hasNext, onBack, onNext }) {
     if (!isSolo || !showResult) return null;
     return (
@@ -313,20 +317,15 @@ function renderResultOverlay({ isSolo, showResult, result, hasNext, onBack, onNe
                     </div>
 
                     <div className="flex gap-3 mt-5">
+                        {/* 只有这一个按钮。如果还有下一题，执行onNext；如果没有，执行onBack（即结束） */}
                         <button
                             type="button"
-                            onClick={onBack}
-                            className="flex-1 py-3 bg-white/10 hover:bg-white/20 rounded-xl transition-all text-white"
+                            onClick={hasNext ? onNext : onBack}
+                            className="w-full py-3 bg-gradient-to-r from-orange-500 to-orange-600 text-white font-semibold rounded-xl shadow-lg hover:shadow-orange-500/50 transition-all"
                         >
-                            返回题目
-                        </button>
-                        <button
-                            type="button"
-                            onClick={onNext}
-                            disabled={!hasNext}
-                            className="flex-1 py-3 bg-gradient-to-r from-orange-500 to-orange-600 text-white font-semibold rounded-xl shadow-lg hover:shadow-orange-500/50 transition-all disabled:opacity-50 disabled:hover:shadow-none"
-                        >
-                            {result?.isCorrect ? '立即进入下一题' : '继续下一题'}
+                            {hasNext 
+                                ? (result?.isCorrect ? '立即进入下一题' : '继续下一题') 
+                                : '结束'}
                         </button>
                     </div>
                 </div>
@@ -453,19 +452,24 @@ const Game = () => {
     useEffect(() => {
         if (!isSolo) return;
 
-        if (!initialQuestionId) {
+        if (!initialQuestionId && (!initialIds || initialIds.length === 0)) {
             navigate('/solo');
             return;
         }
 
+        // 兼容单题进入和列表进入的情况
         if (!Array.isArray(initialIds) || initialIds.length === 0) {
-            setQuestionIds([initialQuestionId]);
-            setCurrentIndex(0);
+            if (initialQuestionId) {
+                setQuestionIds([initialQuestionId]);
+                setCurrentIndex(0);
+                loadDetail(initialQuestionId);
+            }
+        } else {
+            // 如果传入了列表，加载当前index的题目
+            loadDetail(initialIds[currentIndex]);
         }
-
-        loadDetail(initialQuestionId);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isSolo, navigate]);
+    }, [isSolo, navigate]); // removed initialIds dependency to avoid loop if it changes ref
 
     useEffect(() => {
         if (!result?.isCorrect) return undefined;

@@ -33,7 +33,19 @@ L.Icon.Default.mergeOptions({
     shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
 });
 
-/* eslint-disable react/prop-types */
+
+
+// Fisher-Yates 洗牌算法
+function shuffleArray(array) {
+    const arr = [...array];
+    for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+}
+
+
 function MapPickerModal({ isOpen, onClose, onConfirm, initialCoord }) {
     const [selectedCoord, setSelectedCoord] = useState(initialCoord || null);
 
@@ -139,12 +151,12 @@ function MapPickerModal({ isOpen, onClose, onConfirm, initialCoord }) {
     );
 }
 
-function toNumberOrUndefined(val) {
-    const trimmed = String(val ?? '').trim();
-    if (!trimmed) return undefined;
-    const num = Number(trimmed);
-    return Number.isFinite(num) ? num : undefined;
-}
+// function toNumberOrUndefined(val) {
+//     const trimmed = String(val ?? '').trim();
+//     if (!trimmed) return undefined;
+//     const num = Number(trimmed);
+//     return Number.isFinite(num) ? num : undefined;
+// }
 
 function cleanErrorMessage(errorMsg) {
     if (!errorMsg) return '操作失败';
@@ -291,6 +303,7 @@ async function submitCreateQuestion({
     }
 }
 
+
 function renderQuestionListPanel({
     campus,
     difficulty,
@@ -303,7 +316,8 @@ function renderQuestionListPanel({
     filteredList,
     selectedId,
     onSelect,
-    onDelete, // <--- 新增接收 onDelete 参数
+    onDelete,
+    onStartRandomPractice, 
 }) {
     let listContent;
     if (listLoading) listContent = <div className="text-gray-500">加载中...</div>;
@@ -313,7 +327,6 @@ function renderQuestionListPanel({
         listContent = (
             <div className="space-y-3">
                 {filteredList.map((q) => (
-                    // 外层改为 div，以便控制布局
                     <div
                         key={q.id}
                         className={`w-full flex justify-between items-center pr-2 rounded-xl transition-all border ${
@@ -322,7 +335,6 @@ function renderQuestionListPanel({
                                 : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
                         }`}
                     >
-                        {/* 左侧主要点击区域，点击查看详情 */}
                         <button
                             type="button"
                             onClick={() => onSelect(q)}
@@ -334,13 +346,12 @@ function renderQuestionListPanel({
                             </div>
                         </button>
 
-                        {/* 右侧删除按钮 */}
                         <div className="flex items-center gap-2 pl-2 border-l border-white/5">
                             <span className="text-gray-400 text-sm mr-2">#{q.id}</span>
                             <button
                                 type="button"
                                 onClick={(e) => {
-                                    e.stopPropagation(); // 防止触发 onSelect
+                                    e.stopPropagation();
                                     onDelete(q.id);
                                 }}
                                 className="p-2 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-all"
@@ -355,17 +366,23 @@ function renderQuestionListPanel({
         );
     }
 
-    // ... (return 部分保持不变) ...
     return (
-        <div className="glass-dark rounded-3xl p-6 lg:col-span-1">
-            {/* ... 之前的筛选代码保持不变 ... */}
+        <div className="glass-dark rounded-3xl p-6 lg:col-span-1 flex flex-col h-full">
             <div className="flex items-center gap-3 mb-4">
                 <List className="w-5 h-5 text-gray-400" />
                 <h2 className="text-xl font-bold">题目列表</h2>
             </div>
 
+            {/* 新增：随机开始按钮 */}
+            <button
+                onClick={onStartRandomPractice}
+                className="w-full py-3 mb-4 bg-gradient-to-r from-orange-500 to-orange-600 hover:shadow-orange-500/30 text-white font-bold rounded-xl shadow-lg transition-all flex items-center justify-center gap-2"
+            >
+                <Play size={20} fill="currentColor" />
+                开始练习 (随机5题)
+            </button>
+
             <div className="grid grid-cols-2 gap-3 mb-4">
-               {/* ... selects 保持不变 ... */}
                <select value={campus} onChange={(e) => onChangeCampus(e.target.value)} className="bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-white focus:outline-none focus:border-apple-orange transition-all">
                     {CAMPUS_OPTIONS.map((o) => <option key={o.value} value={o.value} className="bg-gray-900">{o.label}</option>)}
                </select>
@@ -376,18 +393,22 @@ function renderQuestionListPanel({
 
             <div className="text-gray-500 text-sm mb-4">显示 {filteredCount} / {total}</div>
 
-            {listContent}
+            {/* 列表内容区域 */}
+            <div className="flex-1 overflow-y-auto custom-scrollbar">
+                {listContent}
+            </div>
         </div>
     );
 }
+
 
 function renderQuestionDetailPanel({
     selectedId,
     detailLoading,
     detailError,
     detail,
-    onStartPractice,
-    canStartPractice,
+    // onStartPractice, // 已移除
+    // canStartPractice, // 已移除
 }) {
     let detailContent;
     if (!selectedId) detailContent = <div className="text-gray-500">请选择一道题目查看详情</div>;
@@ -414,20 +435,11 @@ function renderQuestionDetailPanel({
                     <img
                         src={imageUrl}
                         alt={detail.title || `question-${detail.id}`}
-                        className="w-full rounded-2xl border border-white/10"
+                        className="w-full rounded-2xl border border-white/10 max-h-[400px] object-contain bg-black/20"
                     />
                 ) : null}
 
-                <button
-                    type="button"
-                    onClick={onStartPractice}
-                    disabled={!canStartPractice}
-                    className="w-full py-3 bg-gradient-to-r from-orange-500 to-orange-600 text-white font-semibold rounded-xl shadow-lg hover:shadow-orange-500/50 transition-all disabled:opacity-50 disabled:hover:shadow-none flex items-center justify-center gap-2"
-                    title={canStartPractice ? '进入练习模式' : '该题目缺少正确坐标，无法练习'}
-                >
-                    <Play size={18} />
-                    开始练习
-                </button>
+                {/* --- 此处原有的“开始练习”按钮已被移除 --- */}
 
                 <div className="grid gap-2 text-sm">
                     <div className="text-gray-400"><span className="text-gray-500">作者：</span>{detail.authorUsername ?? '-'}</div>
@@ -462,6 +474,8 @@ function renderQuestionDetailPanel({
         </div>
     );
 }
+
+
 
 function renderCreateQuestionPanel({
     createCampus,
@@ -656,9 +670,9 @@ const SoloMode = () => {
 
     const filteredList = useMemo(() => filterQuestions(list, campus, difficulty), [campus, difficulty, list]);
 
-    const canStartPractice = Boolean(
-        detail?.id && detail?.correctCoord?.lat != null && detail?.correctCoord?.lon != null,
-    );
+    // const canStartPractice = Boolean(
+    //     detail?.id && detail?.correctCoord?.lat != null && detail?.correctCoord?.lon != null,
+    // );
 
     const loadList = () => loadQuestionList({
         navigate,
@@ -694,16 +708,38 @@ const SoloMode = () => {
         await loadDetail(q.id);
     };
 
-    const handleStartPractice = () => {
-        if (!canStartPractice) return;
-        const ids = filteredList.map((q) => q.id);
-        const idx = ids.indexOf(detail.id);
+    const handleStartRandomPractice = () => {
+        console.log("点击了开始练习");
+        if (!filteredList || filteredList.length === 0) {
+            console.log("失败：列表为空");
+            setActionErr('当前列表中没有题目，请先创建或修改筛选条件');
+            return;
+        }
+
+        // 1. 过滤掉坐标不全的题目（防止练习报错）
+        const validQuestions = filteredList.filter(
+            q => q.correctCoord && q.correctCoord.lat != null && q.correctCoord.lon != null
+        );
+
+        console.log("有效题目数量:", validQuestions.length);
+
+        if (validQuestions.length === 0) {
+            setActionErr('当前列表中的题目均缺少正确坐标，无法进行练习');
+            return;
+        }
+
+        // 2. 随机打乱并取前5个
+        const randomQuestions = shuffleArray(validQuestions).slice(0, 5);
+        const ids = randomQuestions.map(q => q.id);
+
+        console.log("即将跳转题目ID:", ids);
+
+        // 3. 跳转到 Game 页面
         navigate('/game', {
             state: {
                 mode: 'solo',
-                questionId: detail.id,
                 questionIds: ids,
-                startIndex: Math.max(0, idx),
+                startIndex: 0,
             },
         });
     };
@@ -864,6 +900,7 @@ const SoloMode = () => {
                         selectedId,
                         onSelect: handleSelect,
                         onDelete: handleDelete,
+                        onStartRandomPractice: handleStartRandomPractice,
                     })}
 
                     {renderQuestionDetailPanel({
@@ -871,8 +908,6 @@ const SoloMode = () => {
                         detailLoading,
                         detailError,
                         detail,
-                        onStartPractice: handleStartPractice,
-                        canStartPractice,
                     })}
 
                     {renderCreateQuestionPanel({
