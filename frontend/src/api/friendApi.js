@@ -14,6 +14,19 @@ export async function addFriend(username, payload) {
 }
 
 /**
+ * DELETE /users/{username}/friends
+ * body: { friendUsername: string }
+ * @param {string} username
+ * @param {{ friendUsername: string }} payload
+ */
+export async function removeFriend(username, payload) {
+  const resp = await apiClient.delete(`/users/${encodeURIComponent(username)}/friends`, {
+    data: { friendUsername: payload.friendUsername },
+  });
+  return unwrapApiResponse(resp.data);
+}
+
+/**
  * PUT /users/{username}/friends/applications
  * @param {string} username
  * @param {{ friendUsername: string, handleType: 'accept'|'reject' }} payload

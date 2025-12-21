@@ -8,6 +8,7 @@ import {
     getPendingFriendRequests,
     getSentFriendRequests,
     handleFriendApplication,
+    removeFriend,
 } from '../api/friendApi';
 
 const Friends = () => {
@@ -27,6 +28,8 @@ const Friends = () => {
     const [sentError, setSentError] = useState('');
     const [sentList, setSentList] = useState([]);
     const [sentTotal, setSentTotal] = useState(0);
+
+    const [deletingKey, setDeletingKey] = useState('');
 
     const [friendUsername, setFriendUsername] = useState('');
     const [adding, setAdding] = useState(false);
@@ -49,7 +52,17 @@ const Friends = () => {
                             <span className="text-white font-medium">{f.friendUsername}</span>
                             <span className="text-gray-500 text-xs">积分 {f.friendPoints ?? 0}</span>
                         </div>
-                        <span className="text-gray-400 text-sm">{f.friendshipStatus}</span>
+                        <div className="flex items-center gap-3">
+                            <span className="text-gray-400 text-sm">{f.friendshipStatus}</span>
+                            <button
+                                type="button"
+                                onClick={() => handleDeleteFriend(f.friendUsername)}
+                                disabled={deletingKey !== ''}
+                                className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-xl transition-all text-white disabled:opacity-50"
+                            >
+                                {deletingKey === f.friendUsername ? '删除中...' : '删除'}
+                            </button>
+                        </div>
                     </div>
                 ))}
             </div>
@@ -243,6 +256,27 @@ const Friends = () => {
             setActionErr(e?.message || '操作失败');
         } finally {
             setPendingActionKey('');
+        }
+    };
+
+    const handleDeleteFriend = async (friendUsernameToDelete) => {
+        const userInfo = getCurrentUserInfo();
+        if (!userInfo?.username) {
+            navigate('/login');
+            return;
+        }
+
+        try {
+            setDeletingKey(friendUsernameToDelete);
+            setActionErr('');
+            setActionMsg('');
+            await removeFriend(userInfo.username, { friendUsername: friendUsernameToDelete });
+            setActionMsg('好友删除成功');
+            await refresh();
+        } catch (e) {
+            setActionErr(e?.message || '删除好友失败');
+        } finally {
+            setDeletingKey('');
         }
     };
 

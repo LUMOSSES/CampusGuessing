@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Swords, Trophy, ChevronLeft } from 'lucide-react';
+import { Swords, Trophy, ChevronLeft, User } from 'lucide-react';
 
 const GameMenu = () => {
     const navigate = useNavigate();
@@ -22,6 +22,14 @@ const GameMenu = () => {
             color: 'from-orange-500 to-red-500',
             path: '/matchmaking?mode=ranked',
             delay: 0.1
+        },
+        {
+            title: '独自变强',
+            description: '单人模式，刷题变强',
+            icon: User,
+            color: 'from-emerald-500 to-green-500',
+            path: '/solo',
+            delay: 0.2
         }
     ];
 
