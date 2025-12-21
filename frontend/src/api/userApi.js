@@ -35,3 +35,15 @@ export async function getUserInfo(username) {
   const resp = await apiClient.get(`/users/${encodeURIComponent(username)}`);
   return unwrapApiResponse(resp.data);
 }
+
+
+
+/**
+ * GET /users/:userId/records
+ * 获取指定用户的对战记录列表
+ * @param {string | number} userId
+ */
+export async function getUserRecords(userId) {
+  const resp = await apiClient.get(`/users/${userId}/records`);
+  return unwrapApiResponse(resp.data);
+}

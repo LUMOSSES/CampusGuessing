@@ -1,23 +1,13 @@
-import { getCurrentUserInfo } from './authStorage';
+import { apiClient, unwrapApiResponse } from './apiClient';
 
-// 假设你的后端基础路径是 /api
-const BASE_URL = 'http://localhost:8080/api'; 
-
+/**
+ * POST /records
+ * 提交游戏对战记录
+ * @param {{ userId: number, gameType: string, questionRecords: Array }} payload
+ */
 export async function submitGameRecord(payload) {
-  const token = localStorage.getItem('token'); // 假设你有 token 存储
-  
-  const response = await fetch(`${BASE_URL}/records`, { // 请根据实际后端接口路径修改 '/records'
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': token ? `Bearer ${token}` : '',
-    },
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    throw new Error('上传记录失败');
-  }
-
-  return await response.json();
+  // 对应后端接口: POST /api/records
+  // apiClient 通常配置了 baseURL (如 /api)，所以这里直接写 '/records'
+  const resp = await apiClient.post('/records', payload);
+  return unwrapApiResponse(resp.data);
 }

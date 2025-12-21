@@ -287,7 +287,7 @@ function renderMapOverlay({
 // -----------------------------------------------------------------------------
 // 修改点：重构结果弹窗，实现“继续下一题”->“结束”的逻辑，并移除“返回”按钮
 // -----------------------------------------------------------------------------
-function renderResultOverlay({ isSolo, showResult, result, hasNext, onBack, onNext }) {
+function renderResultOverlay({ isSolo, showResult, result, hasNext, onNext, onFinish }) {
     if (!isSolo || !showResult) return null;
     return (
         <AnimatePresence>
@@ -317,15 +317,15 @@ function renderResultOverlay({ isSolo, showResult, result, hasNext, onBack, onNe
                     </div>
 
                     <div className="flex gap-3 mt-5">
-                        {/* 只有这一个按钮。如果还有下一题，执行onNext；如果没有，执行onBack（即结束） */}
+                        {/* 如果有下一题，调用onNext；如果没有，调用onFinish进行上传和退出 */}
                         <button
                             type="button"
-                            onClick={hasNext ? onNext : onBack}
+                            onClick={hasNext ? onNext : onFinish}
                             className="w-full py-3 bg-gradient-to-r from-orange-500 to-orange-600 text-white font-semibold rounded-xl shadow-lg hover:shadow-orange-500/50 transition-all"
                         >
                             {hasNext 
                                 ? (result?.isCorrect ? '立即进入下一题' : '继续下一题') 
-                                : '结束'}
+                                : '结束并上传成绩'}
                         </button>
                     </div>
                 </div>
@@ -369,6 +369,7 @@ const Game = () => {
     const [currentIndex, setCurrentIndex] = useState(Number.isFinite(initialIndex) ? initialIndex : 0);
 
     const [imageScale, setImageScale] = useState(1);
+    const [sessionRecords, setSessionRecords] = useState([]);
 
     const autoNextTimerRef = useRef(null);
 
@@ -449,6 +450,34 @@ const Game = () => {
         await loadDetail(questionIds[nextIndex]);
     };
 
+    const handleFinishGame = async () => {
+        const userInfo = getCurrentUserInfo();
+        if (!userInfo?.userId) {
+            navigate('/login');
+            return;
+        }
+
+        try {
+            // 构建请求体
+            const payload = {
+                userId: userInfo.userId,
+                gameType: '独自变强', // 对应后端枚举或字符串
+                questionRecords: sessionRecords
+            };
+
+            // 调用API上传
+            await submitGameRecord(payload);
+            
+            // 上传成功后离开
+            navigate(-1);
+        } catch (err) {
+            console.error("Failed to submit game record:", err);
+            // 即使上传失败，也应当允许用户离开，或者提示重试
+            alert("成绩上传失败，请检查网络");
+            navigate(-1);
+        }
+    };
+
     useEffect(() => {
         if (!isSolo) return;
 
@@ -491,6 +520,19 @@ const Game = () => {
         const submitResult = buildSubmitResult({ guessPosition, correctCoord });
         setResult(submitResult);
         setShowResult(true);
+
+        // 新增：记录本题答案
+        // 注意：Leaflet是 lat,lng; 后端要求 userCoord: { lon, lat }
+        if (detail?.id && guessPosition) {
+            const currentRecord = {
+                questionId: detail.id,
+                userCoord: {
+                    lon: guessPosition.lng,
+                    lat: guessPosition.lat
+                }
+            };
+            setSessionRecords(prev => [...prev, currentRecord]);
+        }
     };
 
     function MapClickHandlerInner() {
@@ -541,6 +583,7 @@ const Game = () => {
                     hasNext,
                     onBack: goBackToQuestions,
                     onNext: goNext,
+                    onFinish: handleFinishGame,
                 })}
             </div>
 
