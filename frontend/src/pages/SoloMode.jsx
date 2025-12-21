@@ -1,0 +1,857 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { ChevronLeft, List, PlusCircle, FileText, Play, MapPin, X, Upload, Image as ImageIcon } from 'lucide-react';
+import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
+import { motion, AnimatePresence } from 'framer-motion';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+import { getCurrentUserInfo } from '../api/authStorage';
+import { createQuestion, getQuestionDetail, getQuestionList } from '../api/questionApi';
+import { uploadImage } from '../api/imageUpload';
+
+const CAMPUS_OPTIONS = [
+    { value: '', label: '全部校区' },
+    { value: 'zhuhai', label: '珠海' },
+    { value: 'shenzhen', label: '深圳' },
+    { value: 'south', label: '南校区' },
+    { value: 'east', label: '东校区' },
+    { value: 'north', label: '北校区' },
+];
+
+const DIFFICULTY_OPTIONS = [
+    { value: '', label: '全部难度' },
+    { value: 'easy', label: 'easy' },
+    { value: 'medium', label: 'medium' },
+    { value: 'hard', label: 'hard' },
+];
+
+// Leaflet marker icon fix
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+    iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
+    iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+});
+
+/* eslint-disable react/prop-types */
+function MapPickerModal({ isOpen, onClose, onConfirm, initialCoord }) {
+    const [selectedCoord, setSelectedCoord] = useState(initialCoord || null);
+
+    function MapClickHandler() {
+        useMapEvents({
+            click(e) {
+                setSelectedCoord({ lat: e.latlng.lat, lon: e.latlng.lng });
+            },
+        });
+        return null;
+    }
+
+    const handleConfirm = () => {
+        if (selectedCoord) {
+            onConfirm(selectedCoord);
+            onClose();
+        }
+    };
+
+    // 使用用户指定的地图中心坐标
+    const mapCenter = [22.3477, 113.5894];
+
+    if (!isOpen) return null;
+
+    return (
+        <AnimatePresence>
+            <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80"
+                onClick={onClose}
+            >
+                <motion.div
+                    initial={{ scale: 0.9, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0.9, opacity: 0 }}
+                    className="glass-dark rounded-3xl p-6 w-full max-w-4xl border border-white/10"
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                            <MapPin className="w-5 h-5 text-orange-400" />
+                            <h2 className="text-xl font-bold">在地图上选择正确位置</h2>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="p-2 rounded-full hover:bg-white/10 transition-all"
+                        >
+                            <X className="w-5 h-5" />
+                        </button>
+                    </div>
+
+                    {selectedCoord ? (
+                        <div className="mb-3 text-sm text-gray-400">
+                            已选坐标：{selectedCoord.lat.toFixed(6)}, {selectedCoord.lon.toFixed(6)}
+                        </div>
+                    ) : (
+                        <div className="mb-3 text-sm text-gray-500">请在地图上点击选择正确位置</div>
+                    )}
+
+                    <div className="w-full h-[500px] rounded-2xl overflow-hidden border border-white/10 mb-4">
+                        <MapContainer
+                            key={isOpen ? 'map-open' : 'map-closed'}
+                            center={mapCenter}
+                            zoom={15}
+                            style={{ height: '100%', width: '100%' }}
+                            zoomControl={true}
+                        >
+                            <TileLayer
+                                url="https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}"
+                                attribution='&copy; <a href="https://www.amap.com/">高德地图</a>'
+                                subdomains={['1', '2', '3', '4']}
+                            />
+                            <MapClickHandler />
+                            {selectedCoord ? (
+                                <Marker position={[selectedCoord.lat, selectedCoord.lon]} />
+                            ) : null}
+                        </MapContainer>
+                    </div>
+
+                    <div className="flex gap-3">
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="flex-1 py-3 bg-white/10 hover:bg-white/20 rounded-xl transition-all text-white"
+                        >
+                            取消
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleConfirm}
+                            disabled={!selectedCoord}
+                            className="flex-1 py-3 bg-gradient-to-r from-orange-500 to-orange-600 text-white font-semibold rounded-xl shadow-lg hover:shadow-orange-500/50 transition-all disabled:opacity-50 disabled:hover:shadow-none"
+                        >
+                            确认位置
+                        </button>
+                    </div>
+                </motion.div>
+            </motion.div>
+        </AnimatePresence>
+    );
+}
+
+function toNumberOrUndefined(val) {
+    const trimmed = String(val ?? '').trim();
+    if (!trimmed) return undefined;
+    const num = Number(trimmed);
+    return Number.isFinite(num) ? num : undefined;
+}
+
+function cleanErrorMessage(errorMsg) {
+    if (!errorMsg) return '操作失败';
+    
+    // 截断过长的错误消息
+    let msg = String(errorMsg);
+    if (msg.length > 200) {
+        msg = msg.substring(0, 200) + '...';
+    }
+    
+    // 提取关键错误信息
+    if (msg.includes('参数验证失败')) {
+        // 尝试从Map中提取第一个错误
+        const regex = /=([^,}]+)/;
+        const match = regex.exec(msg);
+        if (match?.[1]) {
+            return match[1].trim();
+        }
+    }
+    
+    // 处理SQL约束错误
+    if (msg.includes('constraint') && msg.includes('content')) {
+        return '题目描述不能为空';
+    }
+    
+    return msg;
+}
+
+function getAuthedUserOrRedirect(navigate) {
+    const userInfo = getCurrentUserInfo();
+    if (!userInfo?.username) {
+        navigate('/login');
+        return null;
+    }
+    return userInfo;
+}
+
+function filterQuestions(list, campus, difficulty) {
+    return (list || []).filter((q) => {
+        if (campus && q.campus !== campus) return false;
+        if (difficulty && q.difficulty !== difficulty) return false;
+        return true;
+    });
+}
+
+async function loadQuestionList({
+    navigate,
+    campus,
+    difficulty,
+    setListLoading,
+    setListError,
+    setTotal,
+    setList,
+}) {
+    const userInfo = getAuthedUserOrRedirect(navigate);
+    if (!userInfo) return;
+
+    try {
+        setListLoading(true);
+        setListError('');
+        const resp = await getQuestionList({ page: 1, size: 50, campus, difficulty });
+        setTotal(resp?.total || 0);
+        setList(resp?.list || []);
+    } catch (e) {
+        setListError(cleanErrorMessage(e?.message) || '题目列表加载失败');
+    } finally {
+        setListLoading(false);
+    }
+}
+
+async function loadQuestionDetail({
+    navigate,
+    questionId,
+    setDetailLoading,
+    setDetailError,
+    setDetail,
+}) {
+    const userInfo = getAuthedUserOrRedirect(navigate);
+    if (!userInfo) return;
+
+    try {
+        setDetailLoading(true);
+        setDetailError('');
+        const resp = await getQuestionDetail(questionId);
+        setDetail(resp);
+    } catch (e) {
+        setDetailError(cleanErrorMessage(e?.message) || '题目详情加载失败');
+    } finally {
+        setDetailLoading(false);
+    }
+}
+
+async function submitCreateQuestion({
+    navigate,
+    username,
+    createCampus,
+    createDifficulty,
+    createCoord,
+    uploadedImageKey,
+    createTitle,
+    createContent,
+    createAnswer,
+    setCreateLoading,
+    setActionMsg,
+    setActionErr,
+    onCreated,
+    clearForm,
+}) {
+    const userInfo = getAuthedUserOrRedirect(navigate);
+    if (!userInfo) return;
+
+    if (!createCoord?.lat || !createCoord?.lon) {
+        setActionErr('请在地图上选择正确位置');
+        return;
+    }
+
+    if (!uploadedImageKey) {
+        setActionErr('请上传题目图片');
+        return;
+    }
+
+    try {
+        setCreateLoading(true);
+        setActionMsg('');
+        setActionErr('');
+
+        const resp = await createQuestion(username, {
+            campus: createCampus,
+            difficulty: createDifficulty,
+            key: uploadedImageKey,
+            correctCoord: { lon: createCoord.lon, lat: createCoord.lat },
+            title: createTitle.trim() || '未命名题目',
+            content: createContent.trim() || '无描述',
+            answer: createAnswer.trim() || '无答案',
+        });
+
+        setActionMsg(`题目创建成功（ID: ${resp?.id ?? '-'}）`);
+        clearForm();
+        await onCreated();
+    } catch (e) {
+        setActionErr(cleanErrorMessage(e?.message) || '题目创建失败');
+    } finally {
+        setCreateLoading(false);
+    }
+}
+
+function renderQuestionListPanel({
+    campus,
+    difficulty,
+    onChangeCampus,
+    onChangeDifficulty,
+    total,
+    filteredCount,
+    listLoading,
+    listError,
+    filteredList,
+    selectedId,
+    onSelect,
+}) {
+    let listContent;
+    if (listLoading) listContent = <div className="text-gray-500">加载中...</div>;
+    else if (listError) listContent = <div className="text-red-400">{listError}</div>;
+    else if (filteredList.length === 0) listContent = <div className="text-gray-500">暂无题目</div>;
+    else {
+        listContent = (
+            <div className="space-y-3">
+                {filteredList.map((q) => (
+                    <button
+                        key={q.id}
+                        type="button"
+                        onClick={() => onSelect(q)}
+                        className={`w-full text-left flex justify-between items-center py-3 px-4 rounded-xl transition-all border ${
+                            selectedId === q.id
+                                ? 'bg-white/10 border-white/20'
+                                : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
+                        }`}
+                    >
+                        <div className="flex flex-col">
+                            <span className="text-white font-medium">{q.title || `题目 #${q.id}`}</span>
+                            <span className="text-gray-500 text-xs">{q.campus} · {q.difficulty}</span>
+                        </div>
+                        <span className="text-gray-400 text-sm">#{q.id}</span>
+                    </button>
+                ))}
+            </div>
+        );
+    }
+
+    return (
+        <div className="glass-dark rounded-3xl p-6 lg:col-span-1">
+            <div className="flex items-center gap-3 mb-4">
+                <List className="w-5 h-5 text-gray-400" />
+                <h2 className="text-xl font-bold">题目列表</h2>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 mb-4">
+                <select
+                    value={campus}
+                    onChange={(e) => onChangeCampus(e.target.value)}
+                    className="bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-white focus:outline-none focus:border-apple-orange transition-all"
+                >
+                    {CAMPUS_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value} className="bg-gray-900">
+                            {o.label}
+                        </option>
+                    ))}
+                </select>
+                <select
+                    value={difficulty}
+                    onChange={(e) => onChangeDifficulty(e.target.value)}
+                    className="bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-white focus:outline-none focus:border-apple-orange transition-all"
+                >
+                    {DIFFICULTY_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value} className="bg-gray-900">
+                            {o.label}
+                        </option>
+                    ))}
+                </select>
+            </div>
+
+            <div className="text-gray-500 text-sm mb-4">显示 {filteredCount} / {total}</div>
+
+            {listContent}
+        </div>
+    );
+}
+
+function renderQuestionDetailPanel({
+    selectedId,
+    detailLoading,
+    detailError,
+    detail,
+    onStartPractice,
+    canStartPractice,
+}) {
+    let detailContent;
+    if (!selectedId) detailContent = <div className="text-gray-500">请选择一道题目查看详情</div>;
+    else if (detailLoading) detailContent = <div className="text-gray-500">加载中...</div>;
+    else if (detailError) detailContent = <div className="text-red-400">{detailError}</div>;
+    else if (detail === null) detailContent = <div className="text-gray-500">暂无详情</div>;
+    else {
+        const imageUrl = detail?.imageData?.links?.url;
+        const coordText = detail?.correctCoord
+            ? `${detail.correctCoord.lat ?? '-'}, ${detail.correctCoord.lon ?? '-'}`
+            : '-';
+
+        detailContent = (
+            <div className="space-y-4">
+                <div className="flex items-start justify-between gap-4">
+                    <div>
+                        <h3 className="text-white font-semibold text-lg">{detail.title || `题目 #${detail.id}`}</h3>
+                        <p className="text-gray-500 text-sm">{detail.campus} · {detail.difficulty}</p>
+                    </div>
+                    <span className="text-gray-400 text-sm">#{detail.id}</span>
+                </div>
+
+                {imageUrl ? (
+                    <img
+                        src={imageUrl}
+                        alt={detail.title || `question-${detail.id}`}
+                        className="w-full rounded-2xl border border-white/10"
+                    />
+                ) : null}
+
+                <button
+                    type="button"
+                    onClick={onStartPractice}
+                    disabled={!canStartPractice}
+                    className="w-full py-3 bg-gradient-to-r from-orange-500 to-orange-600 text-white font-semibold rounded-xl shadow-lg hover:shadow-orange-500/50 transition-all disabled:opacity-50 disabled:hover:shadow-none flex items-center justify-center gap-2"
+                    title={canStartPractice ? '进入练习模式' : '该题目缺少正确坐标，无法练习'}
+                >
+                    <Play size={18} />
+                    开始练习
+                </button>
+
+                <div className="grid gap-2 text-sm">
+                    <div className="text-gray-400"><span className="text-gray-500">作者：</span>{detail.authorUsername ?? '-'}</div>
+                    <div className="text-gray-400"><span className="text-gray-500">坐标：</span>{coordText}</div>
+                    <div className="text-gray-400"><span className="text-gray-500">创建时间：</span>{detail.createdAt ?? '-'}</div>
+                </div>
+
+                {detail.content ? (
+                    <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
+                        <div className="text-gray-400 text-xs mb-2">题目内容</div>
+                        <div className="text-white whitespace-pre-wrap">{detail.content}</div>
+                    </div>
+                ) : null}
+
+                {detail.answer ? (
+                    <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
+                        <div className="text-gray-400 text-xs mb-2">答案</div>
+                        <div className="text-white whitespace-pre-wrap">{detail.answer}</div>
+                    </div>
+                ) : null}
+            </div>
+        );
+    }
+
+    return (
+        <div className="glass-dark rounded-3xl p-6 lg:col-span-2">
+            <div className="flex items-center gap-3 mb-4">
+                <FileText className="w-5 h-5 text-gray-400" />
+                <h2 className="text-xl font-bold">题目详情</h2>
+            </div>
+            {detailContent}
+        </div>
+    );
+}
+
+function renderCreateQuestionPanel({
+    createCampus,
+    setCreateCampus,
+    createDifficulty,
+    setCreateDifficulty,
+    createCoord,
+    onOpenMapPicker,
+    uploadedImageKey,
+    uploadedImageUrl,
+    onImageUpload,
+    uploadingImage,
+    createTitle,
+    setCreateTitle,
+    createContent,
+    setCreateContent,
+    createAnswer,
+    setCreateAnswer,
+    createLoading,
+    onCreate,
+}) {
+    return (
+        <div className="glass-dark rounded-3xl p-6 lg:col-span-3">
+            <div className="flex items-center gap-3 mb-4">
+                <PlusCircle className="w-5 h-5 text-gray-400" />
+                <h2 className="text-xl font-bold">创建题目</h2>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-3 mb-3">
+                <select
+                    value={createCampus}
+                    onChange={(e) => setCreateCampus(e.target.value)}
+                    className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-apple-orange transition-all"
+                >
+                    {CAMPUS_OPTIONS.filter((o) => o.value !== '').map((o) => (
+                        <option key={o.value} value={o.value} className="bg-gray-900">
+                            {o.label}
+                        </option>
+                    ))}
+                </select>
+
+                <select
+                    value={createDifficulty}
+                    onChange={(e) => setCreateDifficulty(e.target.value)}
+                    className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-apple-orange transition-all"
+                >
+                    {DIFFICULTY_OPTIONS.filter((o) => o.value !== '').map((o) => (
+                        <option key={o.value} value={o.value} className="bg-gray-900">
+                            {o.label}
+                        </option>
+                    ))}
+                </select>
+            </div>
+
+            <div className="mb-3">
+                <button
+                    type="button"
+                    onClick={onOpenMapPicker}
+                    className="w-full py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition-all text-white flex items-center justify-center gap-2"
+                >
+                    <MapPin className="w-4 h-4" />
+                    {createCoord ? `已选位置：${createCoord.lat.toFixed(4)}, ${createCoord.lon.toFixed(4)}` : '在地图上选择正确位置（必填）'}
+                </button>
+            </div>
+
+            <div className="mb-3">
+                <label className="w-full block">
+                    <input
+                        type="file"
+                        accept="image/*"
+                        onChange={onImageUpload}
+                        disabled={uploadingImage}
+                        className="hidden"
+                    />
+                    <div className="w-full py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition-all text-white flex items-center justify-center gap-2 cursor-pointer">
+                        {uploadingImage && (
+                            <>
+                                <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
+                                上传中...
+                            </>
+                        )}
+                        {!uploadingImage && uploadedImageKey && (
+                            <>
+                                <ImageIcon className="w-4 h-4 text-green-400" />
+                                已上传图片
+                            </>
+                        )}
+                        {!uploadingImage && !uploadedImageKey && (
+                            <>
+                                <Upload className="w-4 h-4" />
+                                上传题目图片（必填）
+                            </>
+                        )}
+                    </div>
+                </label>
+                {uploadedImageKey && (
+                    <div className="mt-2">
+                        <div className="text-xs text-gray-400 mb-2 truncate">图片Key: {uploadedImageKey}</div>
+                        {uploadedImageUrl && (
+                            <div className="w-full h-48 rounded-xl overflow-hidden border border-white/10 bg-black">
+                                <img 
+                                    src={uploadedImageUrl}
+                                    alt="题目图片预览" 
+                                    className="w-full h-full object-contain"
+                                    onError={(e) => {
+                                        console.error('图片加载失败:', uploadedImageUrl);
+                                        e.target.style.display = 'none';
+                                    }}
+                                />
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
+
+            <div className="grid gap-3 mb-3">
+                <input
+                    type="text"
+                    value={createTitle}
+                    onChange={(e) => setCreateTitle(e.target.value)}
+                    placeholder="标题"
+                    className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-apple-orange transition-all"
+                />
+            </div>
+
+            <div className="grid gap-3 mb-3">
+                <textarea
+                    value={createContent}
+                    onChange={(e) => setCreateContent(e.target.value)}
+                    placeholder="题目内容（可选）"
+                    rows={3}
+                    className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-apple-orange transition-all resize-none"
+                />
+            </div>
+
+            <div className="grid gap-3 mb-4">
+                <input
+                    type="text"
+                    value={createAnswer}
+                    onChange={(e) => setCreateAnswer(e.target.value)}
+                    placeholder="答案（可选）"
+                    className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-apple-orange transition-all"
+                />
+            </div>
+
+            <button
+                type="button"
+                onClick={onCreate}
+                disabled={createLoading}
+                className="w-full py-3 bg-gradient-to-r from-orange-500 to-orange-600 text-white font-semibold rounded-xl shadow-lg hover:shadow-orange-500/50 transition-all disabled:opacity-50 disabled:hover:shadow-none"
+            >
+                {createLoading ? '创建中...' : '创建题目'}
+            </button>
+
+            <div className="text-gray-500 text-xs mt-3">
+                提示：地图选点和图片上传为必填项；图片将上传到 PICUI 图床。请先在代码中配置 Bearer Token。
+            </div>
+        </div>
+    );
+}
+
+const SoloMode = () => {
+    const navigate = useNavigate();
+
+    const [campus, setCampus] = useState('');
+    const [difficulty, setDifficulty] = useState('');
+
+    const [listLoading, setListLoading] = useState(true);
+    const [listError, setListError] = useState('');
+    const [total, setTotal] = useState(0);
+    const [list, setList] = useState([]);
+
+    const [selectedId, setSelectedId] = useState(null);
+    const [detailLoading, setDetailLoading] = useState(false);
+    const [detailError, setDetailError] = useState('');
+    const [detail, setDetail] = useState(null);
+
+    const [createCampus, setCreateCampus] = useState('zhuhai');
+    const [createDifficulty, setCreateDifficulty] = useState('easy');
+    const [createCoord, setCreateCoord] = useState(null);
+    const [uploadedImageKey, setUploadedImageKey] = useState('');
+    const [uploadedImageUrl, setUploadedImageUrl] = useState('');
+    const [uploadingImage, setUploadingImage] = useState(false);
+    const [createTitle, setCreateTitle] = useState('');
+    const [createContent, setCreateContent] = useState('');
+    const [createAnswer, setCreateAnswer] = useState('');
+    const [createLoading, setCreateLoading] = useState(false);
+    const [showMapPicker, setShowMapPicker] = useState(false);
+
+    const [actionMsg, setActionMsg] = useState('');
+    const [actionErr, setActionErr] = useState('');
+
+    const filteredList = useMemo(() => filterQuestions(list, campus, difficulty), [campus, difficulty, list]);
+
+    const canStartPractice = Boolean(
+        detail?.id && detail?.correctCoord?.lat != null && detail?.correctCoord?.lon != null,
+    );
+
+    const loadList = () => loadQuestionList({
+        navigate,
+        campus,
+        difficulty,
+        setListLoading,
+        setListError,
+        setTotal,
+        setList,
+    });
+
+    const loadDetail = (questionId) => loadQuestionDetail({
+        navigate,
+        questionId,
+        setDetailLoading,
+        setDetailError,
+        setDetail,
+    });
+
+    useEffect(() => {
+        loadList();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [navigate]);
+
+    const handleRefresh = async () => {
+        setActionMsg('');
+        setActionErr('');
+        await loadList();
+    };
+
+    const handleSelect = async (q) => {
+        setSelectedId(q.id);
+        await loadDetail(q.id);
+    };
+
+    const handleStartPractice = () => {
+        if (!canStartPractice) return;
+        const ids = filteredList.map((q) => q.id);
+        const idx = ids.indexOf(detail.id);
+        navigate('/game', {
+            state: {
+                mode: 'solo',
+                questionId: detail.id,
+                questionIds: ids,
+                startIndex: Math.max(0, idx),
+            },
+        });
+    };
+
+    const handleImageUpload = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        console.log('开始上传图片:', file.name, '大小:', (file.size / 1024 / 1024).toFixed(2), 'MB');
+
+        try {
+            setUploadingImage(true);
+            setActionErr('');
+            setActionMsg('');
+            const result = await uploadImage(file);
+            console.log('图片上传成功:', result);
+            setUploadedImageKey(result.key);
+            setUploadedImageUrl(result.url);
+            setActionMsg('图片上传成功！');
+        } catch (error) {
+            console.error('图片上传失败:', error);
+            setActionErr(cleanErrorMessage(error.message) || '图片上传失败');
+            setUploadedImageKey(''); // 失败时清空Key
+            setUploadedImageUrl(''); // 失败时清空URL
+        } finally {
+            setUploadingImage(false);
+        }
+    };
+
+    const handleCreate = () => {
+        const userInfo = getCurrentUserInfo();
+        if (!userInfo?.username) {
+            navigate('/login');
+            return;
+        }
+
+        const clearForm = () => {
+            setCreateCoord(null);
+            setUploadedImageKey('');
+            setUploadedImageUrl('');
+            setCreateTitle('');
+            setCreateContent('');
+            setCreateAnswer('');
+        };
+
+        submitCreateQuestion({
+            navigate,
+            username: userInfo.username,
+            createCampus,
+            createDifficulty,
+            createCoord,
+            uploadedImageKey,
+            createTitle,
+            createContent,
+            createAnswer,
+            setCreateLoading,
+            setActionMsg,
+            setActionErr,
+            onCreated: loadList,
+            clearForm,
+        });
+    };
+
+    return (
+        <div className="min-h-screen flex flex-col items-center justify-start p-6 relative overflow-hidden">
+            <div className="absolute inset-0 bg-gradient-to-b from-black via-gray-900 to-black -z-10" />
+            <div className="absolute top-0 left-0 w-full h-full overflow-hidden -z-10 opacity-30">
+                <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-emerald-500/20 rounded-full blur-3xl animate-pulse" />
+                <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-purple-500/20 rounded-full blur-3xl animate-pulse delay-1000" />
+            </div>
+
+            <div className="max-w-6xl w-full pt-6">
+                <div className="flex items-center justify-between mb-8">
+                    <button
+                        onClick={() => navigate('/game-menu')}
+                        className="p-3 rounded-full glass-dark hover:bg-white/10 transition-all group"
+                    >
+                        <ChevronLeft className="w-6 h-6 text-gray-400 group-hover:text-white transition-colors" />
+                    </button>
+                    <h1 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white to-gray-400">
+                        独自变强
+                    </h1>
+                    <button
+                        type="button"
+                        onClick={handleRefresh}
+                        className="px-4 py-2 rounded-full glass-dark hover:bg-white/10 transition-all text-gray-200"
+                    >
+                        刷新
+                    </button>
+                </div>
+
+                {actionMsg ? (
+                    <div className="mb-4 p-4 bg-green-500/10 border border-green-500/30 rounded-xl text-green-400">
+                        {actionMsg}
+                    </div>
+                ) : null}
+                {actionErr ? (
+                    <div className="mb-4 p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400">
+                        {actionErr}
+                    </div>
+                ) : null}
+
+                <div className="grid lg:grid-cols-3 gap-6">
+                    {renderQuestionListPanel({
+                        campus,
+                        difficulty,
+                        onChangeCampus: setCampus,
+                        onChangeDifficulty: setDifficulty,
+                        total,
+                        filteredCount: filteredList.length,
+                        listLoading,
+                        listError,
+                        filteredList,
+                        selectedId,
+                        onSelect: handleSelect,
+                    })}
+
+                    {renderQuestionDetailPanel({
+                        selectedId,
+                        detailLoading,
+                        detailError,
+                        detail,
+                        onStartPractice: handleStartPractice,
+                        canStartPractice,
+                    })}
+
+                    {renderCreateQuestionPanel({
+                        createCampus,
+                        setCreateCampus,
+                        createDifficulty,
+                        setCreateDifficulty,
+                        createCoord,
+                        onOpenMapPicker: () => setShowMapPicker(true),
+                        uploadedImageKey,
+                        uploadedImageUrl,
+                        onImageUpload: handleImageUpload,
+                        uploadingImage,
+                        createTitle,
+                        setCreateTitle,
+                        createContent,
+                        setCreateContent,
+                        createAnswer,
+                        setCreateAnswer,
+                        createLoading,
+                        onCreate: handleCreate,
+                    })}
+                </div>
+            </div>
+
+            <MapPickerModal
+                isOpen={showMapPicker}
+                onClose={() => setShowMapPicker(false)}
+                onConfirm={setCreateCoord}
+                initialCoord={createCoord}
+            />
+        </div>
+    );
+};
+
+export default SoloMode;

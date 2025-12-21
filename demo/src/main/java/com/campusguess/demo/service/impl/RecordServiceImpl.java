@@ -123,7 +123,7 @@ public class RecordServiceImpl implements RecordService {
             throw new BusinessException(403, "无权限访问该记录");
         }
 
-        List<QuestionDetailDTO> qDetails = new ArrayList<>();
+        List<RecordDetailResponse.QuestionDetail> qDetails = new ArrayList<>();
         List<RecordItem> items = record.getItems();
         if (items != null) {
             for (RecordItem it : items) {
@@ -132,20 +132,22 @@ public class RecordServiceImpl implements RecordService {
                 correct.setLon(q.getCorrectLon());
                 correct.setLat(q.getCorrectLat());
 
-                QuestionBaseDTO base = new QuestionBaseDTO(q.getId(), q.getCampus(), q.getDifficulty(), q.getImageKey(), correct);
+                var base = new RecordDetailResponse.QuestionBase(
+                        q.getId(), q.getCampus(), q.getDifficulty(), q.getImageKey(), correct);
 
                 CoordDTO userCoord = new CoordDTO();
                 userCoord.setLon(it.getUserLon());
                 userCoord.setLat(it.getUserLat());
 
-                UserAnswerInfoDTO answer = new UserAnswerInfoDTO(userCoord, it.getSingleScore());
-
-                qDetails.add(new QuestionDetailDTO(base, answer));
+                var answer = new RecordDetailResponse.UserAnswerInfo(userCoord, it.getSingleScore());
+                qDetails.add(new RecordDetailResponse.QuestionDetail(base, answer));
             }
         }
 
-        GameRecordBaseDTO gameBase = new GameRecordBaseDTO(record.getId(), user.getId(), user.getUsername(), record.getTotalQuestionNum());
-        PointChangeDTO pc = new PointChangeDTO(record.getEarnPoints(), record.getPointBefore(), record.getPointAfter());
+        var gameBase = new RecordDetailResponse.GameRecordBase(
+                record.getId(), user.getId(), user.getUsername(), record.getTotalQuestionNum());
+        var pc = new RecordDetailResponse.PointChange(
+                record.getEarnPoints(), record.getPointBefore(), record.getPointAfter());
 
         return new RecordDetailResponse(gameBase, qDetails, pc);
     }

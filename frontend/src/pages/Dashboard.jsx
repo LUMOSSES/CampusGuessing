@@ -1,15 +1,42 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Trophy, Clock, Users, Map } from 'lucide-react';
+import { getCurrentUserInfo, getDisplayName } from '../api/authStorage';
+import { getFriendCount } from '../api/friendApi';
 
 const Dashboard = () => {
     const navigate = useNavigate();
+    const [friendCount, setFriendCount] = useState('0');
+    const userInfo = getCurrentUserInfo();
+    const displayName = getDisplayName() || userInfo?.username || '';
+
+    useEffect(() => {
+        const userInfo = getCurrentUserInfo();
+        if (!userInfo?.username) {
+            setFriendCount('0');
+            return;
+        }
+
+        let cancelled = false;
+        (async () => {
+            try {
+                const count = await getFriendCount(userInfo.username);
+                if (!cancelled) setFriendCount(String(count ?? 0));
+            } catch {
+                if (!cancelled) setFriendCount('0');
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, []);
 
     const stats = [
         { label: '总积分', value: '0', icon: Trophy },
         { label: '游戏场次', value: '0', icon: Clock },
-        { label: '好友数量', value: '0', icon: Users },
+        { label: '好友', value: friendCount, icon: Users, onClick: () => navigate('/friends') },
         { label: '胜场数', value: '0', icon: Map },
     ];
 
@@ -33,11 +60,11 @@ const Dashboard = () => {
                     <div className="flex items-center gap-6 mb-8">
                         {/* Avatar */}
                         <div className="w-20 h-20 rounded-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center text-2xl font-bold">
-                            L
+                            {(displayName || 'U').charAt(0).toUpperCase()}
                         </div>
                         <div>
-                            <h2 className="text-2xl font-bold mb-1">Lumosse</h2>
-                            <p className="text-gray-500 text-sm">uid: 1099338</p>
+                            <h2 className="text-2xl font-bold mb-1">{displayName || '-'}</h2>
+                            <p className="text-gray-500 text-sm">uid: {userInfo?.userId ?? '-'}</p>
                         </div>
                     </div>
 
@@ -46,13 +73,28 @@ const Dashboard = () => {
                         <h3 className="text-lg font-semibold mb-4">中大积分</h3>
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                             {stats.map((stat, index) => (
-                                <div key={index} className="text-center">
-                                    <div className="flex justify-center mb-2">
-                                        <stat.icon className="w-5 h-5 text-gray-500" />
+                                stat.onClick ? (
+                                    <button
+                                        key={stat.label}
+                                        type="button"
+                                        onClick={stat.onClick}
+                                        className="text-center cursor-pointer"
+                                    >
+                                        <div className="flex justify-center mb-2">
+                                            <stat.icon className="w-5 h-5 text-gray-500" />
+                                        </div>
+                                        <div className="text-sm text-gray-500 mb-1">{stat.label}</div>
+                                        <div className="text-2xl font-bold">{stat.value}</div>
+                                    </button>
+                                ) : (
+                                    <div key={stat.label || index} className="text-center">
+                                        <div className="flex justify-center mb-2">
+                                            <stat.icon className="w-5 h-5 text-gray-500" />
+                                        </div>
+                                        <div className="text-sm text-gray-500 mb-1">{stat.label}</div>
+                                        <div className="text-2xl font-bold">{stat.value}</div>
                                     </div>
-                                    <div className="text-sm text-gray-500 mb-1">{stat.label}</div>
-                                    <div className="text-2xl font-bold">{stat.value}</div>
-                                </div>
+                                )
                             ))}
                         </div>
                     </div>
@@ -69,7 +111,7 @@ const Dashboard = () => {
                     <div className="space-y-3">
                         {matchHistory.map((match, index) => (
                             <div
-                                key={index}
+                                key={`${match.date}-${match.result}-${index}`}
                                 className="flex justify-between items-center py-3 px-4 bg-white/5 rounded-xl hover:bg-white/10 transition-all cursor-pointer"
                             >
                                 <span className="text-gray-400 text-sm">{match.date}</span>

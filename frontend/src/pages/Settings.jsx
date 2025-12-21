@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { User, LogOut, Moon, ChevronLeft, Save, Sun } from 'lucide-react';
+import { getCurrentUserInfo, getDisplayName, setDisplayName } from '../api/authStorage';
 
 const Settings = () => {
     const navigate = useNavigate();
@@ -10,7 +11,8 @@ const Settings = () => {
         const savedMode = localStorage.getItem('darkMode');
         return savedMode === null ? true : savedMode === 'true';
     });
-    const [nickname, setNickname] = useState('Lumosse');
+    const userInfo = getCurrentUserInfo();
+    const [nickname, setNickname] = useState(() => getDisplayName() || userInfo?.username || '');
 
     // Apply dark/light mode effect
     useEffect(() => {
@@ -23,8 +25,8 @@ const Settings = () => {
     }, [darkMode]);
 
     const handleSave = () => {
-        // Mock save functionality
-        // In a real app, this would send data to the backend
+        // 仅前端保存昵称（displayName），不影响后端 username
+        setDisplayName(nickname);
         alert('设置已保存！');
         navigate(-1); // Go back
     };
@@ -63,8 +65,9 @@ const Settings = () => {
                             </div>
                             <div className="flex-1">
                                 <div className="mb-3">
-                                    <label className="text-xs text-gray-500 block mb-1">昵称</label>
+                                    <div className="text-xs text-gray-500 block mb-1">昵称</div>
                                     <input
+                                        id="nickname"
                                         type="text"
                                         value={nickname}
                                         onChange={(e) => setNickname(e.target.value)}
@@ -72,8 +75,8 @@ const Settings = () => {
                                     />
                                 </div>
                                 <div>
-                                    <label className="text-xs text-gray-500 block mb-1">UID</label>
-                                    <div className="text-sm text-gray-400">1099338</div>
+                                    <div className="text-xs text-gray-500 block mb-1">UID</div>
+                                    <div className="text-sm text-gray-400">{userInfo?.userId ?? '-'}</div>
                                 </div>
                             </div>
                         </div>
