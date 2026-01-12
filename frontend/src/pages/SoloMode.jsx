@@ -1,6 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, List, PlusCircle, FileText, Play, MapPin, X, Upload, Image as ImageIcon, Trash2 } from 'lucide-react';
+import { 
+    ChevronLeft, List, PlusCircle, FileText, Play, MapPin, X, Upload, 
+    Image as ImageIcon, Trash2, 
+    MessageSquare, Send // <--- 新增这2个图标
+} from 'lucide-react';
 import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
 import { motion, AnimatePresence } from 'framer-motion';
 import L from 'leaflet';
@@ -8,6 +12,8 @@ import 'leaflet/dist/leaflet.css';
 import { getCurrentUserInfo } from '../api/authStorage';
 import { createQuestion, getQuestionDetail, getQuestionList } from '../api/questionApi';
 import { uploadImage } from '../api/imageUpload';
+import { createComment } from '../api/commentApi';
+import { getUserInfo } from '../api/userApi';
 
 const CAMPUS_OPTIONS = [
     { value: '', label: '全部校区' },
@@ -407,8 +413,10 @@ function renderQuestionDetailPanel({
     detailLoading,
     detailError,
     detail,
-    // onStartPractice, // 已移除
-    // canStartPractice, // 已移除
+    commentContent,
+    setCommentContent,
+    onSubmitComment,
+    isSubmittingComment
 }) {
     let detailContent;
     if (!selectedId) detailContent = <div className="text-gray-500">请选择一道题目查看详情</div>;
@@ -439,8 +447,6 @@ function renderQuestionDetailPanel({
                     />
                 ) : null}
 
-                {/* --- 此处原有的“开始练习”按钮已被移除 --- */}
-
                 <div className="grid gap-2 text-sm">
                     <div className="text-gray-400"><span className="text-gray-500">作者：</span>{detail.authorUsername ?? '-'}</div>
                     <div className="text-gray-400"><span className="text-gray-500">坐标：</span>{coordText}</div>
@@ -460,6 +466,35 @@ function renderQuestionDetailPanel({
                         <div className="text-white whitespace-pre-wrap">{detail.answer}</div>
                     </div>
                 ) : null}
+
+                <div className="pt-6 mt-6 border-t border-white/10">
+                    <div className="flex items-center gap-2 mb-3">
+                        <MessageSquare className="w-4 h-4 text-orange-400" />
+                        <h3 className="text-white font-semibold">添加评论</h3>
+                    </div>
+                    
+                    <div className="relative">
+                        <textarea
+                            value={commentContent}
+                            onChange={(e) => setCommentContent(e.target.value)}
+                            placeholder="写下你的看法..."
+                            disabled={isSubmittingComment}
+                            className="w-full bg-white/5 border border-white/10 rounded-xl p-4 pr-14 text-white placeholder-gray-600 focus:outline-none focus:border-apple-orange transition-all resize-none h-24 custom-scrollbar"
+                        />
+                        <button
+                            onClick={onSubmitComment}
+                            disabled={isSubmittingComment || !commentContent.trim()}
+                            className="absolute bottom-3 right-3 p-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg transition-all disabled:opacity-50 disabled:bg-gray-700 flex items-center justify-center"
+                            title="发送"
+                        >
+                            {isSubmittingComment ? (
+                                <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
+                            ) : (
+                                <Send className="w-4 h-4" />
+                            )}
+                        </button>
+                    </div>
+                </div>
             </div>
         );
     }
@@ -668,6 +703,9 @@ const SoloMode = () => {
     const [actionMsg, setActionMsg] = useState('');
     const [actionErr, setActionErr] = useState('');
 
+    const [commentContent, setCommentContent] = useState('');
+    const [isSubmittingComment, setIsSubmittingComment] = useState(false);
+
     const filteredList = useMemo(() => filterQuestions(list, campus, difficulty), [campus, difficulty, list]);
 
     // const canStartPractice = Boolean(
@@ -847,6 +885,51 @@ const SoloMode = () => {
         });
     };
 
+    const handleCommentSubmit = async () => {
+        const userInfo = getCurrentUserInfo();
+        console.log('Submitting comment by user:', userInfo?.username);
+        if (!userInfo?.username) {
+            navigate('/login');
+            return;
+        }
+
+        if (!selectedId) return;
+        if (!commentContent.trim()) {
+            setActionErr('评论内容不能为空');
+            return;
+        }
+
+        try {
+            setIsSubmittingComment(true);
+            setActionMsg('');
+            setActionErr('');
+
+            // 2.【新增步骤】先调用接口获取完整用户信息（为了拿到 userId）
+            // 假设 getUserInfo 返回的对象里包含 id 字段
+            let fullUserProfile;
+            try {
+                fullUserProfile = await getUserInfo(userInfo.username);
+            } catch (err) {
+                console.error("获取用户信息失败:", err);
+                throw new Error("无法验证用户身份，请检查网络或重新登录");
+            }
+
+
+            // 3. 使用获取到的 id 提交评论
+            await createComment(selectedId, {
+                userId: fullUserProfile.userId, 
+                content: commentContent
+            });
+
+            setActionMsg('评论发布成功！');
+            setCommentContent(''); 
+        } catch (error) {
+            console.error('Comment failed:', error);
+        } finally {
+            setIsSubmittingComment(false);
+        }
+    };
+
     return (
         <div className="min-h-screen flex flex-col items-center justify-start p-6 relative overflow-hidden">
             <div className="absolute inset-0 bg-gradient-to-b from-black via-gray-900 to-black -z-10" />
@@ -908,6 +991,10 @@ const SoloMode = () => {
                         detailLoading,
                         detailError,
                         detail,
+                        commentContent,
+                        setCommentContent,
+                        onSubmitComment: handleCommentSubmit,
+                        isSubmittingComment
                     })}
 
                     {renderCreateQuestionPanel({
