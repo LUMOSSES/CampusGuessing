@@ -25,10 +25,13 @@ const Dashboard = () => {
         return `${year}-${month}-${day} ${hour}:${minute}`;
     };
 
-    // 预留：点击记录进行复盘
-    const handleRecordClick = (recordId) => {
-        console.log(`Maps to review for record: ${recordId}`);
-        // 示例跳转： navigate(`/review/${recordId}`);
+    const handleRecordClick = (record) => {
+        // 导航到复盘页，传递 userId 和 recordId
+        if (!userId) {
+            navigate('/login');
+            return;
+        }
+        navigate('/review', { state: { userId, recordId: record.recordId } });
     };
 
     useEffect(() => {
@@ -148,7 +151,7 @@ const Dashboard = () => {
                             records.map((record) => (
                                 <div
                                     key={record.recordId}
-                                    onClick={() => handleRecordClick(record.recordId)}
+                                    onClick={() => handleRecordClick(record)}
                                     className="flex justify-between items-center py-3 px-4 bg-white/5 rounded-xl hover:bg-white/10 transition-all cursor-pointer"
                                 >
                                     <span className="text-gray-400 text-sm">
