@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { 
     ChevronLeft, List, PlusCircle, FileText, Play, MapPin, X, Upload, 
     Image as ImageIcon, Trash2, 
-    MessageSquare, Send // <--- 新增这2个图标
+    MessageSquare, Send, Clock, ThumbsUp, User, Heart
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -12,7 +12,7 @@ import 'leaflet/dist/leaflet.css';
 import { getCurrentUserInfo } from '../api/authStorage';
 import { createQuestion, getQuestionDetail, getQuestionList } from '../api/questionApi';
 import { uploadImage } from '../api/imageUpload';
-import { createComment } from '../api/commentApi';
+import { getCommentList, deleteComment, createComment, likeComment, unlikeComment } from '../api/commentApi'; // 引入新API
 import { getUserInfo } from '../api/userApi';
 
 const CAMPUS_OPTIONS = [
@@ -156,13 +156,6 @@ function MapPickerModal({ isOpen, onClose, onConfirm, initialCoord }) {
         </AnimatePresence>
     );
 }
-
-// function toNumberOrUndefined(val) {
-//     const trimmed = String(val ?? '').trim();
-//     if (!trimmed) return undefined;
-//     const num = Number(trimmed);
-//     return Number.isFinite(num) ? num : undefined;
-// }
 
 function cleanErrorMessage(errorMsg) {
     if (!errorMsg) return '操作失败';
@@ -416,7 +409,12 @@ function renderQuestionDetailPanel({
     commentContent,
     setCommentContent,
     onSubmitComment,
-    isSubmittingComment
+    isSubmittingComment,
+    comments,            // 评论列表数据
+    commentsLoading,     // 评论加载状态
+    currentUsername,     // 当前登录用户名(用于判断是否是自己的评论)
+    onDeleteComment,
+    onToggleLike,
 }) {
     let detailContent;
     if (!selectedId) detailContent = <div className="text-gray-500">请选择一道题目查看详情</div>;
@@ -468,6 +466,86 @@ function renderQuestionDetailPanel({
                 ) : null}
 
                 <div className="pt-6 mt-6 border-t border-white/10">
+                    <div className="flex items-center gap-2 mb-4">
+                        <MessageSquare className="w-4 h-4 text-orange-400" />
+                        <h3 className="text-white font-semibold">
+                            评论区 ({comments ? comments.length : 0})
+                        </h3>
+                    </div>
+
+                    <div className="space-y-3 mb-6">
+                        {commentsLoading ? (
+                            <div className="text-gray-500 text-sm py-2">加载评论中...</div>
+                        ) : (!comments || comments.length === 0) ? (
+                            <div className="text-gray-500 text-sm py-2 italic">暂无评论，快来抢沙发吧~</div>
+                        ) : (
+                            comments.map((comment) => (
+                                <div key={comment.commentId} className="bg-white/5 border border-white/10 rounded-xl p-3">
+                                    {/* 评论头部：头像/用户名/ID/时间/删除按钮 */}
+                                    <div className="flex justify-between items-start mb-2">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-orange-400 to-pink-500 flex items-center justify-center">
+                                                <User className="w-3 h-3 text-white" />
+                                            </div>
+                                            <div className="flex flex-col">
+                                                <span className="text-gray-200 text-xs font-bold">
+                                                    {comment.username}
+                                                </span>
+                                                <span className="text-gray-600 text-[10px]">
+                                                    ID: {comment.userId}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        
+                                        {/* 如果当前登录用户名 == 评论用户名，显示删除按钮 */}
+                                        {currentUsername && currentUsername === comment.username && (
+                                            <button
+                                                onClick={() => onDeleteComment(comment.commentId)}
+                                                className="text-gray-600 hover:text-red-400 transition-colors p-1"
+                                                title="删除我的评论"
+                                            >
+                                                <Trash2 className="w-3 h-3" />
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    {/* 评论内容 */}
+                                    <div className="text-gray-300 text-sm whitespace-pre-wrap ml-8 mb-2">
+                                        {comment.content}
+                                    </div>
+
+                                    {/* 底部信息：时间和点赞 */}
+                                    <div className="flex items-center justify-between ml-8 text-xs text-gray-500">
+                                        <div className="flex items-center gap-1">
+                                            <Clock className="w-3 h-3" />
+                                            {/* 简单格式化时间，去掉T和毫秒 */}
+                                            <span>
+                                                {comment.createTime ? comment.createTime.replace('T', ' ').split('.')[0] : '-'}
+                                            </span>
+                                        </div>
+                                        <button
+                                            onClick={() => onToggleLike(comment)}
+                                            className="flex items-center gap-1 group hover:text-red-400 transition-colors"
+                                        >
+                                            <Heart 
+                                                className={`w-4 h-4 transition-all ${
+                                                    // 判断是否已点赞：如果是 true，显示红色填充；否则显示空心
+                                                    comment.isLiked 
+                                                        ? "fill-red-500 text-red-500 scale-110" 
+                                                        : "text-gray-400 group-hover:text-red-400 group-hover:scale-110"
+                                                }`} 
+                                            />
+                                            <span className={comment.isLiked ? "text-red-400" : ""}>
+                                                {comment.likeCount || 0}
+                                            </span>
+                                        </button>
+                                    </div>
+                                </div>
+                            ))
+                        )}
+                    </div>
+
+
                     <div className="flex items-center gap-2 mb-3">
                         <MessageSquare className="w-4 h-4 text-orange-400" />
                         <h3 className="text-white font-semibold">添加评论</h3>
@@ -706,6 +784,12 @@ const SoloMode = () => {
     const [commentContent, setCommentContent] = useState('');
     const [isSubmittingComment, setIsSubmittingComment] = useState(false);
 
+    const [comments, setComments] = useState([]);
+    const [commentsLoading, setCommentsLoading] = useState(false);
+    
+    const currentUserInfo = getCurrentUserInfo();
+    const currentUsername = currentUserInfo?.username;
+
     const filteredList = useMemo(() => filterQuestions(list, campus, difficulty), [campus, difficulty, list]);
 
     // const canStartPractice = Boolean(
@@ -743,7 +827,9 @@ const SoloMode = () => {
 
     const handleSelect = async (q) => {
         setSelectedId(q.id);
-        await loadDetail(q.id);
+        // 并行加载详情和评论
+        loadDetail(q.id);
+        loadComments(q.id);
     };
 
     const handleStartRandomPractice = () => {
@@ -885,6 +971,20 @@ const SoloMode = () => {
         });
     };
 
+    const loadComments = async (questionId) => {
+        try {
+            setCommentsLoading(true);
+            const data = await getCommentList(questionId);
+            console.log("加载评论成功:", data);
+            setComments(data || []);
+        } catch (e) {
+            console.error("加载评论失败", e);
+            setComments([]);
+        } finally {
+            setCommentsLoading(false);
+        }
+    };
+
     const handleCommentSubmit = async () => {
         const userInfo = getCurrentUserInfo();
         console.log('Submitting comment by user:', userInfo?.username);
@@ -923,10 +1023,86 @@ const SoloMode = () => {
 
             setActionMsg('评论发布成功！');
             setCommentContent(''); 
+            await loadComments(selectedId);
         } catch (error) {
             console.error('Comment failed:', error);
         } finally {
             setIsSubmittingComment(false);
+        }
+    };
+
+    const handleDeleteComment = async (commentId) => {
+        if (!window.confirm('确定要删除这条评论吗？')) return;
+
+        // 获取 ID 用于 API 调用
+        if (!currentUsername) {
+            navigate('/login');
+            return;
+        }
+
+        try {
+            // 需要获取 userId 才能调用删除接口
+            // (优化：如果你在 SoloMode 顶部已经用 useEffect 获取过完整 userInfo 并存了 state，这里可以直接用)
+            const userProfile = await getUserInfo(currentUsername);
+            
+            await deleteComment(commentId, userProfile.userId);
+
+            setActionMsg('评论删除成功');
+            // 刷新列表
+            await loadComments(selectedId);
+            
+        } catch (e) {
+            console.error("删除失败", e);
+            setActionErr(cleanErrorMessage(e.message) || '删除评论失败');
+        }
+    };
+
+    const handleToggleLike = async (comment) => {
+        // 1. 权限校验
+        if (!currentUserInfo?.username) {
+            navigate('/login');
+            return;
+        }
+
+        // 为了防止用户疯狂点击，这里最好做一个防抖，或者简单的乐观更新
+        // 这里采用：先获取 ID，再调用 API，成功后更新 UI
+        
+        try {
+            // 获取用户真实ID (如果 state 里没有存，就重新获取)
+            const userProfile = await getUserInfo(currentUserInfo.username);
+            const userId = userProfile.userId;
+
+            // 2. 判断当前是“点赞”还是“取消”
+            // 注意：因为后端没返回 isLiked，初始加载时默认是 false。
+            // 只有用户在当前页面点击过，isLiked 才会变成 true。
+            const isCurrentlyLiked = comment.isLiked || false;
+            
+            if (isCurrentlyLiked) {
+                // 执行取消点赞
+                await unlikeComment(comment.commentId, userId);
+            } else {
+                // 执行点赞
+                await likeComment(comment.commentId, userId);
+            }
+
+            // 3. 手动更新本地状态 (UI 变色 + 数字变化)
+            setComments(prevComments => 
+                prevComments.map(c => {
+                    if (c.commentId === comment.commentId) {
+                        return {
+                            ...c,
+                            isLiked: !isCurrentlyLiked, // 状态反转
+                            likeCount: isCurrentlyLiked 
+                                ? (c.likeCount - 1) // 取消点赞：数量-1
+                                : (c.likeCount + 1) // 点赞：数量+1
+                        };
+                    }
+                    return c;
+                })
+            );
+
+        } catch (error) {
+            console.error('Like toggle failed:', error);
         }
     };
 
@@ -994,7 +1170,12 @@ const SoloMode = () => {
                         commentContent,
                         setCommentContent,
                         onSubmitComment: handleCommentSubmit,
-                        isSubmittingComment
+                        isSubmittingComment,
+                        comments,
+                        commentsLoading,
+                        currentUsername, // 传进去用于判断是否显示删除按钮
+                        onDeleteComment: handleDeleteComment,
+                        onToggleLike: handleToggleLike
                     })}
 
                     {renderCreateQuestionPanel({
